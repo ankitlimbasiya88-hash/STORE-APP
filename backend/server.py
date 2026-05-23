@@ -26,7 +26,12 @@ JWT_SECRET = os.environ.get("JWT_SECRET", "grocery-store-secret-key-change-in-pr
 JWT_ALG = "HS256"
 JWT_EXP_DAYS = 30
 
-app = FastAPI()
+app = FastAPI(
+    title="Grocery Store Ops API",
+    docs_url="/api/docs",
+    redoc_url="/api/redoc",
+    openapi_url="/api/openapi.json",
+)
 api_router = APIRouter(prefix="/api")
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/auth/login")
 

@@ -1,8 +1,8 @@
-// Icon font loader for Expo apps. Fonts are loaded from a CDN only under
-// Expo Go (StoreClient) — that's where @expo/vector-icons' .ttf files come
-// back as 0 bytes from Metro's asset resolver on Android. Native dev/prod
-// builds and web pass an empty map, so useFonts resolves to [true, null]
-// immediately via react-native-vector-icons autolinking / web stubs.
+// Icon font loader for Expo apps. Ionicons (used app-wide) is bundled
+// locally to avoid the "Font file for ionicons is empty" error caused by
+// @expo/vector-icons' componentDidMount fallback hitting a broken vendor
+// path in Expo Go. Other families fall back to a CDN under StoreClient
+// only — native dev/prod builds and web get them via autolinking / web stubs.
 // ICON_VECTOR_VERSION must match @expo/vector-icons in package.json.
 // Usage: const [loaded, error] = useIconFonts();
 
@@ -10,6 +10,9 @@ import Constants, { ExecutionEnvironment } from "expo-constants";
 import { useFonts } from "expo-font";
 
 const ICON_VECTOR_VERSION = "15.0.3";
+
+// Locally bundled — guarantees Ionicons works across Expo Go, web, dev builds.
+const LOCAL_IONICONS = require("../../assets/fonts/Ionicons.ttf");
 
 const ICON_FAMILIES = [
   "AntDesign",
@@ -25,7 +28,6 @@ const ICON_FAMILIES = [
   "FontAwesome6_Solid",
   "Fontisto",
   "Foundation",
-  "Ionicons",
   "MaterialCommunityIcons",
   "MaterialIcons",
   "Octicons",
@@ -35,7 +37,7 @@ const ICON_FAMILIES = [
 
 type IconFamily = (typeof ICON_FAMILIES)[number];
 
-const iconFontMap = (): Record<IconFamily, string> =>
+const cdnFontMap = (): Record<IconFamily, string> =>
   Object.fromEntries(
     ICON_FAMILIES.map((f) => [
       f,
@@ -43,9 +45,13 @@ const iconFontMap = (): Record<IconFamily, string> =>
     ]),
   ) as Record<IconFamily, string>;
 
-export const useIconFonts = (): readonly [boolean, Error | null] =>
-  useFonts(
-    Constants.executionEnvironment === ExecutionEnvironment.StoreClient
-      ? iconFontMap()
-      : {},
-  );
+export const useIconFonts = (): readonly [boolean, Error | null] => {
+  const isExpoGo =
+    Constants.executionEnvironment === ExecutionEnvironment.StoreClient;
+  return useFonts({
+    // Always-bundled — the icon family the app actually uses.
+    Ionicons: LOCAL_IONICONS,
+    // Other families: only prewarmed via CDN under Expo Go.
+    ...(isExpoGo ? cdnFontMap() : {}),
+  });
+};
