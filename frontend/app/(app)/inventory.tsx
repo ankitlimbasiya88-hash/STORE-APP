@@ -34,7 +34,7 @@ const styles = StyleSheet.create({
     backgroundColor: colors.primary, flexDirection: "row", alignItems: "center",
     justifyContent: "space-between", paddingHorizontal: spacing.md, paddingVertical: spacing.md,
   },
-  backBtn: { width: 40, height: 40, borderRadius: 20, alignItems: "center", justifyContent: "center" },
+  backBtn: { width: 40, height: 40, borderRadius: 20, alignItems: "center", justifyContent: "center", backgroundColor: "rgba(255,255,255,0.18)" },
   title: { color: "#fff", fontSize: 18, fontWeight: "700" },
   body: { flex: 1, alignItems: "center", justifyContent: "center", padding: spacing.lg },
   iconWrap: {

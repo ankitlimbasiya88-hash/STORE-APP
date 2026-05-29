@@ -1,45 +1,47 @@
-# Grocery Store Ops — Phase 1 (Store Operations)
+# Grocery Store Ops — Iteration 2
 
 ## Overview
-Mobile app (React Native Expo) for grocery store operations with Admin / Employee roles. Login by name + 4-digit PIN. Phase 1 covers **Store Operations**; Inventory & Order Management is placeholder for next phase.
+Multi-store grocery operations app (React Native Expo + FastAPI + MongoDB). Roles: Admin / Employee. Login by name + 4-digit PIN. **Phase 1 (Store Operations) complete**; Inventory & Order Management remains the next phase.
 
-## Tech Stack
+## What's new in iteration 2
+1. **Multi-store** — admin sees all stores, employees are assigned to one or more stores. Each store has its own tasks, accounting heads, accounting entries, and chat.
+2. **Store picker** appears right after login. Stored selection persists across sessions.
+3. **PDF reports** — opening checklist, closing checklist, and accounting reports can be downloaded/shared as PDFs (expo-print + expo-sharing).
+4. **Historical reports** — Reports screen with a date picker lets you generate PDFs for any past date.
+5. **Cash counter modal** — under Credits, a special seeded "Cash" head opens a denominations counter (5¢ / 10¢ / 25¢ / $1 / $2 / $5 / $10 / $50 / $100). Total auto-fills the Cash credit amount.
+6. **Employee restriction** — employees see only `total_credit`, `total_debit`, and `net` (credit − debit) in the accounting summary. Opening balance, closing balance, and individual head amounts are hidden.
+
+## Architecture
 - **Frontend**: Expo SDK 54, expo-router, TypeScript
 - **Backend**: FastAPI + Motor (MongoDB)
-- **Auth**: bcrypt-hashed 4-digit PIN + JWT (30-day expiry)
-- **Chat**: WebSocket (`/api/ws/chat?token=<jwt>`), base64 image/document attachments
+- **Auth**: bcrypt-hashed 4-digit PIN + JWT (30-day expiry). Default seed: `Admin / 1234`.
+- **Chat**: WebSocket `/api/ws/chat?token=<jwt>&store_id=<id>` — messages broadcast only to clients on the same store.
 - **Theme**: Clean & modern, professional blue (#1E40AF)
 
-## Roles
-- **Admin** — full CRUD on tasks, account heads, and users
-- **Employee** — checks off tasks, enters accounting amounts, chat
-- **Default admin** auto-seeded on first startup: `Admin / 1234`
+## Per-store data
+- Stores: `{id, name, created_at}` — auto-seeds **"Main Store"** + a **Cash credit head** on first startup
+- Users: `{id, name, pin_hash, role, allowed_stores[]}` — admin's `allowed_stores=[]` means all
+- Per-store collections: tasks, account_heads, accounting_entries, checklist_submissions, messages — all keyed by `store_id`
 
-## Features (Phase 1)
-### Store Operations
-1. **Opening Checklist** — admin creates/removes tasks; employee ticks & submits (locked until all complete)
-2. **Closing Checklist** — same model, separate task list
-3. **Accounting** — admin manages credit/debit heads; daily opening balance carries over from previous day's closing; closing = opening + credits − debits ($)
-4. **Chat** — real-time WebSocket; everyone can send text, images, and documents (stored as base64)
+## Key API endpoints
+- `POST /api/auth/login`, `GET /api/auth/me`
+- `POST /api/auth/register` (admin), `PUT /api/users/{id}/stores` (admin), `DELETE /api/users/{id}`
+- `GET/POST/DELETE /api/stores` (admin)
+- `GET/POST/DELETE /api/checklists/{opening|closing}/tasks?store_id=…`
+- `GET /api/checklists/{type}/today?store_id=…&date=YYYY-MM-DD`
+- `POST /api/checklists/{type}/toggle?store_id=…`, `…/submit?store_id=…`
+- `GET/POST/DELETE /api/accounting/heads?store_id=…`
+- `GET /api/accounting/today?store_id=…&date=YYYY-MM-DD`
+- `POST /api/accounting/entry?store_id=…`, `…/submit?store_id=…`
+- `GET /api/chat/messages?store_id=…`, `WS /api/ws/chat?token=…&store_id=…`
+- 📘 Swagger UI: `/api/docs`
 
-### Users (Admin only)
-- Add users with name + 4-digit PIN + role
-- Remove users (cannot delete self)
-
-### Inventory & Orders
-- Placeholder screen ("Coming Soon") — to be built in Phase 2
-
-## Key API Endpoints
-- `POST /api/auth/login`, `GET /api/auth/me`, `POST /api/auth/register` (admin)
-- `GET/POST/DELETE /api/checklists/{opening|closing}/tasks`
-- `GET /api/checklists/{type}/today`, `POST /api/checklists/{type}/toggle`, `POST /api/checklists/{type}/submit`
-- `GET/POST/DELETE /api/accounting/heads`
-- `GET /api/accounting/today`, `POST /api/accounting/entry`, `POST /api/accounting/submit`
-- `GET /api/chat/messages`, `WS /api/ws/chat?token=<jwt>`
-- `GET /api/users`, `DELETE /api/users/{id}` (admin)
-
-## Test Credentials
+## Test credentials
 See `/app/memory/test_credentials.md`.
+
+## Test status
+24/24 backend pytest passing. All frontend flows verified by testing agent (mobile viewport 390×844).
 
 ## Roadmap
 - Phase 2: Inventory, pricing, purchasing, and order management
+- Deployment: Railway (backend) + MongoDB Atlas free tier + sideloaded APK
