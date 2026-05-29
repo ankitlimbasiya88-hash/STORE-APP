@@ -9,10 +9,12 @@ import { router } from "expo-router";
 
 import { useSession } from "@/src/ctx/SessionProvider";
 import { colors, spacing, radius } from "@/src/theme/colors";
+import { buildChecklistHtml, generateAndShare } from "@/src/utils/pdf";
 
 type Task = { id: string; title: string; type: string; created_at: string };
 type Today = {
   date: string;
+  historical?: boolean;
   tasks: Task[];
   completed_ids: string[];
   submitted: boolean;
@@ -23,7 +25,7 @@ type Today = {
 export default function ChecklistScreen({ type, title, accentColor }: {
   type: "opening" | "closing"; title: string; accentColor: string;
 }) {
-  const { api, session } = useSession();
+  const { apiStore, session, storeName } = useSession();
   const isAdmin = session?.user.role === "admin";
   const [data, setData] = useState<Today | null>(null);
   const [loading, setLoading] = useState(true);
@@ -32,14 +34,14 @@ export default function ChecklistScreen({ type, title, accentColor }: {
 
   const load = useCallback(async () => {
     try {
-      const today = await api<Today>(`/api/checklists/${type}/today`);
+      const today = await apiStore<Today>(`/api/checklists/${type}/today`);
       setData(today);
     } catch (e: any) {
       Alert.alert("Error", e.message);
     } finally {
       setLoading(false);
     }
-  }, [api, type]);
+  }, [apiStore, type]);
 
   useEffect(() => { load(); }, [load]);
 
@@ -47,7 +49,7 @@ export default function ChecklistScreen({ type, title, accentColor }: {
     if (!newTitle.trim()) return;
     setBusy(true);
     try {
-      await api(`/api/checklists/${type}/tasks`, {
+      await apiStore(`/api/checklists/${type}/tasks`, {
         method: "POST", body: JSON.stringify({ title: newTitle.trim() }),
       });
       setNewTitle("");
@@ -61,7 +63,7 @@ export default function ChecklistScreen({ type, title, accentColor }: {
       { text: "Cancel", style: "cancel" },
       { text: "Remove", style: "destructive", onPress: async () => {
           try {
-            await api(`/api/checklists/${type}/tasks/${id}`, { method: "DELETE" });
+            await apiStore(`/api/checklists/${type}/tasks/${id}`, { method: "DELETE" });
             await load();
           } catch (e: any) { Alert.alert("Error", e.message); }
       }},
@@ -71,7 +73,7 @@ export default function ChecklistScreen({ type, title, accentColor }: {
   const toggle = async (taskId: string, completed: boolean) => {
     if (data?.submitted) return;
     try {
-      await api(`/api/checklists/${type}/toggle`, {
+      await apiStore(`/api/checklists/${type}/toggle`, {
         method: "POST", body: JSON.stringify({ task_id: taskId, completed }),
       });
       await load();
@@ -81,17 +83,30 @@ export default function ChecklistScreen({ type, title, accentColor }: {
   const submit = async () => {
     setBusy(true);
     try {
-      await api(`/api/checklists/${type}/submit`, { method: "POST" });
+      await apiStore(`/api/checklists/${type}/submit`, { method: "POST" });
       Alert.alert("Submitted", "Checklist submitted for today.");
       await load();
     } catch (e: any) { Alert.alert("Cannot submit", e.message); }
     finally { setBusy(false); }
   };
 
+  const downloadPdf = async () => {
+    if (!data) return;
+    const html = buildChecklistHtml({
+      title,
+      storeName: storeName || "Store",
+      date: data.date,
+      tasks: data.tasks.map((t) => ({ id: t.id, title: t.title })),
+      completedIds: data.completed_ids,
+      submitted: data.submitted,
+      submittedBy: data.submitted_by,
+      submittedAt: data.submitted_at,
+    });
+    await generateAndShare(html, `${title} - ${data.date}.pdf`);
+  };
+
   if (loading || !data) {
-    return (
-      <View style={styles.loader}><ActivityIndicator color={colors.primary} size="large" /></View>
-    );
+    return <View style={styles.loader}><ActivityIndicator color={colors.primary} size="large" /></View>;
   }
 
   const completedSet = new Set(data.completed_ids);
@@ -107,14 +122,13 @@ export default function ChecklistScreen({ type, title, accentColor }: {
           <Ionicons name="chevron-back" size={26} color="#fff" />
         </TouchableOpacity>
         <Text style={styles.headerTitle}>{title}</Text>
-        <View style={{ width: 40 }} />
+        <TouchableOpacity testID="pdf-btn" onPress={downloadPdf} style={styles.backBtn}>
+          <Ionicons name="download-outline" size={22} color="#fff" />
+        </TouchableOpacity>
       </View>
 
       <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === "ios" ? "padding" : undefined}>
-        <ScrollView
-          contentContainerStyle={styles.content}
-          refreshControl={<RefreshControl refreshing={false} onRefresh={load} />}
-        >
+        <ScrollView contentContainerStyle={styles.content} refreshControl={<RefreshControl refreshing={false} onRefresh={load} />}>
           <View style={styles.statsRow}>
             <View style={styles.statCard}>
               <Text style={styles.statValue}>{done}/{total}</Text>
@@ -141,7 +155,7 @@ export default function ChecklistScreen({ type, title, accentColor }: {
             </View>
           )}
 
-          {isAdmin && (
+          {isAdmin && !data.submitted && (
             <View style={styles.addBox}>
               <TextInput
                 testID="task-input"
@@ -168,19 +182,12 @@ export default function ChecklistScreen({ type, title, accentColor }: {
             data.tasks.map((t) => {
               const isDone = completedSet.has(t.id);
               return (
-                <TouchableOpacity
-                  key={t.id}
-                  testID={`task-${t.id}`}
-                  style={[styles.taskRow, isDone && styles.taskRowDone]}
-                  onPress={() => toggle(t.id, !isDone)}
-                  disabled={data.submitted}
-                  activeOpacity={0.7}
-                >
+                <TouchableOpacity key={t.id} testID={`task-${t.id}`} style={[styles.taskRow, isDone && styles.taskRowDone]} onPress={() => toggle(t.id, !isDone)} disabled={data.submitted} activeOpacity={0.7}>
                   <View style={[styles.checkbox, isDone && { backgroundColor: colors.success, borderColor: colors.success }]}>
                     {isDone && <Ionicons name="checkmark" size={16} color="#fff" />}
                   </View>
                   <Text style={[styles.taskTitle, isDone && styles.taskTitleDone]}>{t.title}</Text>
-                  {isAdmin && (
+                  {isAdmin && !data.submitted && (
                     <TouchableOpacity testID={`remove-task-${t.id}`} onPress={() => removeTask(t.id)} hitSlop={10}>
                       <Ionicons name="trash-outline" size={20} color={colors.danger} />
                     </TouchableOpacity>
@@ -193,12 +200,7 @@ export default function ChecklistScreen({ type, title, accentColor }: {
 
         {!data.submitted && total > 0 && (
           <View style={styles.footer}>
-            <TouchableOpacity
-              testID="submit-checklist-btn"
-              style={[styles.submitBtn, !canSubmit && styles.submitBtnDisabled]}
-              onPress={submit}
-              disabled={!canSubmit || busy}
-            >
+            <TouchableOpacity testID="submit-checklist-btn" style={[styles.submitBtn, !canSubmit && styles.submitBtnDisabled]} onPress={submit} disabled={!canSubmit || busy}>
               <Ionicons name="checkmark-done" size={20} color="#fff" />
               <Text style={styles.submitText}>
                 {canSubmit ? "Submit Checklist" : `${pending} task(s) pending`}

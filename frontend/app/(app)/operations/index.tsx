@@ -10,6 +10,7 @@ const FUNCTIONS = [
   { key: "accounting", title: "Accounting", desc: "Daily credit & debit", icon: "calculator", color: colors.primary, bg: "#DBEAFE", route: "/(app)/operations/accounting" as const },
   { key: "closing", title: "Closing Checklist", desc: "End-of-day tasks", icon: "moon", color: "#7C3AED", bg: "#EDE9FE", route: "/(app)/operations/closing" as const },
   { key: "chat", title: "Chat", desc: "Team conversations", icon: "chatbubbles", color: colors.success, bg: "#DCFCE7", route: "/(app)/operations/chat" as const },
+  { key: "reports", title: "Reports", desc: "Historical reports & PDFs", icon: "document-text", color: "#0EA5E9", bg: "#E0F2FE", route: "/(app)/operations/reports" as const },
 ];
 
 export default function OperationsScreen() {
@@ -24,13 +25,7 @@ export default function OperationsScreen() {
       </View>
       <ScrollView contentContainerStyle={styles.content}>
         {FUNCTIONS.map((f) => (
-          <TouchableOpacity
-            key={f.key}
-            testID={`ops-card-${f.key}`}
-            style={styles.card}
-            onPress={() => router.push(f.route)}
-            activeOpacity={0.85}
-          >
+          <TouchableOpacity key={f.key} testID={`ops-card-${f.key}`} style={styles.card} onPress={() => router.push(f.route)} activeOpacity={0.85}>
             <View style={[styles.iconWrap, { backgroundColor: f.bg }]}>
               <Ionicons name={f.icon as any} size={28} color={f.color} />
             </View>
@@ -48,19 +43,11 @@ export default function OperationsScreen() {
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: colors.bg },
-  header: {
-    backgroundColor: colors.primary, flexDirection: "row", alignItems: "center",
-    justifyContent: "space-between", paddingHorizontal: spacing.md, paddingVertical: spacing.md,
-  },
+  header: { backgroundColor: colors.primary, flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingHorizontal: spacing.md, paddingVertical: spacing.md },
   backBtn: { width: 40, height: 40, borderRadius: 20, alignItems: "center", justifyContent: "center" },
   title: { color: "#fff", fontSize: 18, fontWeight: "700" },
   content: { padding: spacing.lg, gap: spacing.md },
-  card: {
-    backgroundColor: colors.card, borderRadius: radius.lg, padding: spacing.md,
-    flexDirection: "row", alignItems: "center", gap: spacing.md,
-    borderWidth: 1, borderColor: colors.border,
-    shadowColor: "#0F172A", shadowOpacity: 0.05, shadowRadius: 10, shadowOffset: { width: 0, height: 3 }, elevation: 2,
-  },
+  card: { backgroundColor: colors.card, borderRadius: radius.lg, padding: spacing.md, flexDirection: "row", alignItems: "center", gap: spacing.md, borderWidth: 1, borderColor: colors.border },
   iconWrap: { width: 52, height: 52, borderRadius: 14, alignItems: "center", justifyContent: "center" },
   cardBody: { flex: 1 },
   cardTitle: { fontSize: 16, fontWeight: "700", color: colors.text },

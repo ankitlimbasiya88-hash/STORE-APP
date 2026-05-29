@@ -7,29 +7,38 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { router } from "expo-router";
 
-import { useSession } from "@/src/ctx/SessionProvider";
+import { useSession, User } from "@/src/ctx/SessionProvider";
 import { colors, spacing, radius } from "@/src/theme/colors";
 
-type User = { id: string; name: string; role: "admin" | "employee" };
-
 export default function UsersScreen() {
-  const { api, session } = useSession();
+  const { api, session, stores, refreshStores } = useSession();
   const [users, setUsers] = useState<User[]>([]);
   const [loading, setLoading] = useState(true);
-  const [modalOpen, setModalOpen] = useState(false);
+  const [addOpen, setAddOpen] = useState(false);
+  const [assignOpen, setAssignOpen] = useState<User | null>(null);
   const [newName, setNewName] = useState("");
   const [newPin, setNewPin] = useState("");
   const [newRole, setNewRole] = useState<"admin" | "employee">("employee");
+  const [newAllowed, setNewAllowed] = useState<Set<string>>(new Set());
+  const [assignAllowed, setAssignAllowed] = useState<Set<string>>(new Set());
   const [busy, setBusy] = useState(false);
 
   const load = useCallback(async () => {
     try {
-      setUsers(await api<User[]>("/api/users"));
+      const list = await api<User[]>("/api/users");
+      setUsers(list);
+      await refreshStores();
     } catch (e: any) { Alert.alert("Error", e.message); }
     finally { setLoading(false); }
-  }, [api]);
+  }, [api, refreshStores]);
 
   useEffect(() => { load(); }, [load]);
+
+  const toggleSet = (set: Set<string>, id: string): Set<string> => {
+    const next = new Set(set);
+    if (next.has(id)) next.delete(id); else next.add(id);
+    return next;
+  };
 
   const add = async () => {
     if (!newName.trim() || newPin.length !== 4) {
@@ -39,10 +48,33 @@ export default function UsersScreen() {
     setBusy(true);
     try {
       await api("/api/auth/register", {
-        method: "POST", body: JSON.stringify({ name: newName.trim(), pin: newPin, role: newRole }),
+        method: "POST",
+        body: JSON.stringify({
+          name: newName.trim(), pin: newPin, role: newRole,
+          allowed_stores: Array.from(newAllowed),
+        }),
       });
-      setNewName(""); setNewPin(""); setNewRole("employee");
-      setModalOpen(false);
+      setNewName(""); setNewPin(""); setNewRole("employee"); setNewAllowed(new Set());
+      setAddOpen(false);
+      await load();
+    } catch (e: any) { Alert.alert("Error", e.message); }
+    finally { setBusy(false); }
+  };
+
+  const openAssign = (u: User) => {
+    setAssignAllowed(new Set(u.allowed_stores || []));
+    setAssignOpen(u);
+  };
+
+  const saveAssign = async () => {
+    if (!assignOpen) return;
+    setBusy(true);
+    try {
+      await api(`/api/users/${assignOpen.id}/stores`, {
+        method: "PUT",
+        body: JSON.stringify({ allowed_stores: Array.from(assignAllowed) }),
+      });
+      setAssignOpen(null);
       await load();
     } catch (e: any) { Alert.alert("Error", e.message); }
     finally { setBusy(false); }
@@ -65,6 +97,15 @@ export default function UsersScreen() {
     return <View style={styles.loader}><ActivityIndicator color={colors.primary} size="large" /></View>;
   }
 
+  const storeNamesFor = (u: User): string => {
+    if (u.role === "admin") return "All stores";
+    if (!u.allowed_stores || u.allowed_stores.length === 0) return "No stores assigned";
+    const names = u.allowed_stores
+      .map((id) => stores.find((s) => s.id === id)?.name)
+      .filter(Boolean);
+    return names.join(", ") || "—";
+  };
+
   return (
     <SafeAreaView style={styles.container} edges={["top"]}>
       <View style={styles.header}>
@@ -72,7 +113,7 @@ export default function UsersScreen() {
           <Ionicons name="chevron-back" size={26} color="#fff" />
         </TouchableOpacity>
         <Text style={styles.headerTitle}>Manage Users</Text>
-        <TouchableOpacity testID="add-user-btn" onPress={() => setModalOpen(true)} style={styles.backBtn}>
+        <TouchableOpacity testID="add-user-btn" onPress={() => setAddOpen(true)} style={styles.backBtn}>
           <Ionicons name="person-add" size={22} color="#fff" />
         </TouchableOpacity>
       </View>
@@ -86,36 +127,91 @@ export default function UsersScreen() {
             <View style={{ flex: 1 }}>
               <Text style={styles.name}>{u.name}</Text>
               <Text style={[styles.role, u.role === "admin" && { color: colors.primary }]}>{u.role}</Text>
+              <Text style={styles.stores} numberOfLines={2}>{storeNamesFor(u)}</Text>
             </View>
-            {u.id !== session?.user.id && (
-              <TouchableOpacity testID={`remove-user-${u.name}`} onPress={() => remove(u)} hitSlop={10}>
-                <Ionicons name="trash-outline" size={20} color={colors.danger} />
-              </TouchableOpacity>
-            )}
+            <View style={{ flexDirection: "row", gap: spacing.sm }}>
+              {u.role === "employee" && (
+                <TouchableOpacity testID={`assign-${u.name}`} onPress={() => openAssign(u)} hitSlop={10}>
+                  <Ionicons name="business-outline" size={20} color={colors.primary} />
+                </TouchableOpacity>
+              )}
+              {u.id !== session?.user.id && (
+                <TouchableOpacity testID={`remove-user-${u.name}`} onPress={() => remove(u)} hitSlop={10}>
+                  <Ionicons name="trash-outline" size={20} color={colors.danger} />
+                </TouchableOpacity>
+              )}
+            </View>
           </View>
         ))}
       </ScrollView>
 
-      <Modal visible={modalOpen} transparent animationType="slide" onRequestClose={() => setModalOpen(false)}>
+      {/* Add user modal */}
+      <Modal visible={addOpen} transparent animationType="slide" onRequestClose={() => setAddOpen(false)}>
         <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : undefined} style={styles.modalBack}>
-          <View style={styles.modalBox}>
+          <View style={[styles.modalBox, { maxHeight: "90%" }]}>
             <Text style={styles.modalTitle}>Add User</Text>
-            <TextInput testID="new-user-name" style={styles.input} placeholder="Name" placeholderTextColor={colors.textLight} value={newName} onChangeText={setNewName} />
-            <TextInput testID="new-user-pin" style={[styles.input, { letterSpacing: 8, textAlign: "center" }]} placeholder="4-digit PIN" placeholderTextColor={colors.textLight} keyboardType="number-pad" secureTextEntry maxLength={4} value={newPin} onChangeText={(t) => setNewPin(t.replace(/[^0-9]/g, ""))} />
-            <View style={styles.typeRow}>
-              <TouchableOpacity testID="role-employee" style={[styles.typeBtn, newRole === "employee" && { backgroundColor: colors.primary, borderColor: colors.primary }]} onPress={() => setNewRole("employee")}>
-                <Text style={[styles.typeText, newRole === "employee" && { color: "#fff" }]}>Employee</Text>
-              </TouchableOpacity>
-              <TouchableOpacity testID="role-admin" style={[styles.typeBtn, newRole === "admin" && { backgroundColor: colors.primary, borderColor: colors.primary }]} onPress={() => setNewRole("admin")}>
-                <Text style={[styles.typeText, newRole === "admin" && { color: "#fff" }]}>Admin</Text>
-              </TouchableOpacity>
-            </View>
+            <ScrollView>
+              <TextInput testID="new-user-name" style={styles.input} placeholder="Name" placeholderTextColor={colors.textLight} value={newName} onChangeText={setNewName} />
+              <TextInput testID="new-user-pin" style={[styles.input, { letterSpacing: 8, textAlign: "center" }]} placeholder="4-digit PIN" placeholderTextColor={colors.textLight} keyboardType="number-pad" secureTextEntry maxLength={4} value={newPin} onChangeText={(t) => setNewPin(t.replace(/[^0-9]/g, ""))} />
+              <View style={styles.typeRow}>
+                <TouchableOpacity testID="role-employee" style={[styles.typeBtn, newRole === "employee" && { backgroundColor: colors.primary, borderColor: colors.primary }]} onPress={() => setNewRole("employee")}>
+                  <Text style={[styles.typeText, newRole === "employee" && { color: "#fff" }]}>Employee</Text>
+                </TouchableOpacity>
+                <TouchableOpacity testID="role-admin" style={[styles.typeBtn, newRole === "admin" && { backgroundColor: colors.primary, borderColor: colors.primary }]} onPress={() => setNewRole("admin")}>
+                  <Text style={[styles.typeText, newRole === "admin" && { color: "#fff" }]}>Admin</Text>
+                </TouchableOpacity>
+              </View>
+              {newRole === "employee" && (
+                <>
+                  <Text style={styles.assignLabel}>Assign stores</Text>
+                  {stores.length === 0 ? (
+                    <Text style={{ color: colors.textMuted, fontStyle: "italic" }}>No stores yet</Text>
+                  ) : stores.map((s) => {
+                    const on = newAllowed.has(s.id);
+                    return (
+                      <TouchableOpacity key={s.id} testID={`pick-store-${s.id}`} style={[styles.storeRow, on && styles.storeRowOn]} onPress={() => setNewAllowed(toggleSet(newAllowed, s.id))}>
+                        <Ionicons name={on ? "checkbox" : "square-outline"} size={22} color={on ? colors.primary : colors.textMuted} />
+                        <Text style={styles.storeRowText}>{s.name}</Text>
+                      </TouchableOpacity>
+                    );
+                  })}
+                </>
+              )}
+            </ScrollView>
             <View style={styles.modalActions}>
-              <TouchableOpacity style={[styles.modalBtn, { backgroundColor: colors.surface }]} onPress={() => setModalOpen(false)}>
+              <TouchableOpacity style={[styles.modalBtn, { backgroundColor: colors.surface }]} onPress={() => setAddOpen(false)}>
                 <Text style={{ color: colors.text, fontWeight: "600" }}>Cancel</Text>
               </TouchableOpacity>
               <TouchableOpacity testID="save-user-btn" style={[styles.modalBtn, { backgroundColor: colors.primary }]} onPress={add} disabled={busy}>
                 <Text style={{ color: "#fff", fontWeight: "700" }}>{busy ? "Saving..." : "Add"}</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </KeyboardAvoidingView>
+      </Modal>
+
+      {/* Assign stores modal */}
+      <Modal visible={!!assignOpen} transparent animationType="slide" onRequestClose={() => setAssignOpen(null)}>
+        <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : undefined} style={styles.modalBack}>
+          <View style={[styles.modalBox, { maxHeight: "75%" }]}>
+            <Text style={styles.modalTitle}>Assign Stores to {assignOpen?.name}</Text>
+            <ScrollView>
+              {stores.length === 0 ? <Text style={{ color: colors.textMuted }}>No stores yet</Text> : stores.map((s) => {
+                const on = assignAllowed.has(s.id);
+                return (
+                  <TouchableOpacity key={s.id} testID={`assign-store-${s.id}`} style={[styles.storeRow, on && styles.storeRowOn]} onPress={() => setAssignAllowed(toggleSet(assignAllowed, s.id))}>
+                    <Ionicons name={on ? "checkbox" : "square-outline"} size={22} color={on ? colors.primary : colors.textMuted} />
+                    <Text style={styles.storeRowText}>{s.name}</Text>
+                  </TouchableOpacity>
+                );
+              })}
+            </ScrollView>
+            <View style={styles.modalActions}>
+              <TouchableOpacity style={[styles.modalBtn, { backgroundColor: colors.surface }]} onPress={() => setAssignOpen(null)}>
+                <Text style={{ color: colors.text, fontWeight: "600" }}>Cancel</Text>
+              </TouchableOpacity>
+              <TouchableOpacity testID="save-assign-btn" style={[styles.modalBtn, { backgroundColor: colors.primary }]} onPress={saveAssign} disabled={busy}>
+                <Text style={{ color: "#fff", fontWeight: "700" }}>{busy ? "Saving..." : "Save"}</Text>
               </TouchableOpacity>
             </View>
           </View>
@@ -137,13 +233,18 @@ const styles = StyleSheet.create({
   avatarText: { color: "#fff", fontWeight: "700", fontSize: 18 },
   name: { fontSize: 16, fontWeight: "600", color: colors.text },
   role: { fontSize: 12, color: colors.textMuted, textTransform: "capitalize", marginTop: 2 },
+  stores: { fontSize: 11, color: colors.textMuted, marginTop: 4, fontStyle: "italic" },
   modalBack: { flex: 1, backgroundColor: "rgba(0,0,0,0.5)", justifyContent: "flex-end" },
   modalBox: { backgroundColor: colors.card, borderTopLeftRadius: 24, borderTopRightRadius: 24, padding: spacing.lg, paddingBottom: 40 },
   modalTitle: { fontSize: 18, fontWeight: "700", color: colors.text, marginBottom: spacing.md },
   input: { backgroundColor: colors.surface, borderRadius: radius.md, padding: 14, fontSize: 15, color: colors.text, marginBottom: spacing.sm },
-  typeRow: { flexDirection: "row", gap: spacing.sm, marginBottom: spacing.lg, marginTop: spacing.sm },
+  typeRow: { flexDirection: "row", gap: spacing.sm, marginBottom: spacing.md, marginTop: spacing.sm },
   typeBtn: { flex: 1, padding: 14, borderRadius: radius.md, borderWidth: 1.5, borderColor: colors.border, alignItems: "center" },
   typeText: { fontWeight: "600", color: colors.text },
-  modalActions: { flexDirection: "row", gap: spacing.sm },
+  assignLabel: { fontSize: 13, fontWeight: "600", color: colors.textMuted, marginTop: spacing.sm, marginBottom: spacing.sm, letterSpacing: 0.5, textTransform: "uppercase" },
+  storeRow: { flexDirection: "row", alignItems: "center", gap: 10, padding: 12, borderRadius: radius.md, marginBottom: 6, backgroundColor: colors.surface, borderWidth: 1, borderColor: "transparent" },
+  storeRowOn: { backgroundColor: "#EFF6FF", borderColor: colors.primaryLight + "55" },
+  storeRowText: { fontSize: 15, color: colors.text, fontWeight: "500" },
+  modalActions: { flexDirection: "row", gap: spacing.sm, marginTop: spacing.md },
   modalBtn: { flex: 1, padding: 14, borderRadius: radius.md, alignItems: "center" },
 });

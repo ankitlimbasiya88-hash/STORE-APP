@@ -14,18 +14,19 @@ import { colors, spacing, radius } from "@/src/theme/colors";
 
 type Msg = {
   id: string;
+  store_id: string;
   sender_id: string;
   sender_name: string;
   text?: string | null;
   attachment_base64?: string | null;
-  attachment_type?: string | null; // "image" | "file"
+  attachment_type?: string | null;
   attachment_content_type?: string | null;
   attachment_filename?: string | null;
   created_at: string;
 };
 
 export default function ChatScreen() {
-  const { session, api } = useSession();
+  const { session, apiStore, storeId, storeName } = useSession();
   const me = session!.user;
   const [messages, setMessages] = useState<Msg[]>([]);
   const [text, setText] = useState("");
@@ -37,24 +38,19 @@ export default function ChatScreen() {
   const wsRef = useRef<WebSocket | null>(null);
   const listRef = useRef<FlatList<Msg>>(null);
 
-  // Load history
   useEffect(() => {
     (async () => {
       try {
-        const hist = await api<Msg[]>("/api/chat/messages");
+        const hist = await apiStore<Msg[]>("/api/chat/messages");
         setMessages(hist);
-      } catch (e: any) {
-        console.warn(e);
-      } finally {
-        setLoading(false);
-      }
+      } catch (e: any) { console.warn(e); }
+      finally { setLoading(false); }
     })();
-  }, []);
+  }, [storeId]);
 
-  // WebSocket
   useEffect(() => {
-    if (!session) return;
-    const url = getWsUrl(session.token);
+    if (!session || !storeId) return;
+    const url = getWsUrl(session.token, storeId);
     const ws = new WebSocket(url);
     wsRef.current = ws;
     ws.onopen = () => setConnected(true);
@@ -63,15 +59,12 @@ export default function ChatScreen() {
     ws.onmessage = (ev) => {
       try {
         const m: Msg = JSON.parse(ev.data);
-        setMessages((prev) => {
-          if (prev.find((p) => p.id === m.id)) return prev;
-          return [...prev, m];
-        });
+        setMessages((prev) => prev.find((p) => p.id === m.id) ? prev : [...prev, m]);
         setTimeout(() => listRef.current?.scrollToEnd({ animated: true }), 50);
       } catch {}
     };
     return () => { ws.close(); };
-  }, [session?.token]);
+  }, [session?.token, storeId]);
 
   const send = () => {
     if (!text.trim() && !pending) return;
@@ -93,13 +86,9 @@ export default function ChatScreen() {
 
   const pickImage = async () => {
     const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
-    if (!perm.granted) {
-      Alert.alert("Permission required", "Grant photo library access to attach images.");
-      return;
-    }
+    if (!perm.granted) { Alert.alert("Permission required", "Grant photo library access to attach images."); return; }
     const result = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ImagePicker.MediaTypeOptions.Images,
-      base64: true, quality: 0.6,
+      mediaTypes: ImagePicker.MediaTypeOptions.Images, base64: true, quality: 0.6,
     });
     if (result.canceled) return;
     const asset = result.assets[0];
@@ -131,9 +120,7 @@ export default function ChatScreen() {
         });
       };
       reader.readAsDataURL(blob);
-    } catch (e: any) {
-      Alert.alert("Error", "Could not read file");
-    }
+    } catch (e: any) { Alert.alert("Error", "Could not read file"); }
   };
 
   const renderItem = ({ item }: { item: Msg }) => {
@@ -142,15 +129,12 @@ export default function ChatScreen() {
       <View style={[styles.msgRow, mine ? styles.msgMine : styles.msgTheirs]}>
         {!mine && <Text style={styles.sender}>{item.sender_name}</Text>}
         {item.attachment_base64 && item.attachment_type === "image" && (
-          <Image
-            source={{ uri: `data:${item.attachment_content_type};base64,${item.attachment_base64}` }}
-            style={styles.attachImg}
-          />
+          <Image source={{ uri: `data:${item.attachment_content_type};base64,${item.attachment_base64}` }} style={styles.attachImg} />
         )}
         {item.attachment_base64 && item.attachment_type === "file" && (
           <View style={styles.fileBox}>
-            <Ionicons name="document-text" size={24} color={colors.primary} />
-            <Text style={styles.fileName} numberOfLines={1}>{item.attachment_filename || "Document"}</Text>
+            <Ionicons name="document-text" size={24} color={mine ? "#fff" : colors.primary} />
+            <Text style={[styles.fileName, mine && { color: "#fff" }]} numberOfLines={1}>{item.attachment_filename || "Document"}</Text>
           </View>
         )}
         {item.text ? <Text style={[styles.msgText, mine && { color: "#fff" }]}>{item.text}</Text> : null}
@@ -168,7 +152,7 @@ export default function ChatScreen() {
           <Ionicons name="chevron-back" size={26} color="#fff" />
         </TouchableOpacity>
         <View style={{ flex: 1 }}>
-          <Text style={styles.headerTitle}>Team Chat</Text>
+          <Text style={styles.headerTitle}>{storeName ? `${storeName} Chat` : "Team Chat"}</Text>
           <Text style={styles.headerSub}>
             <View style={[styles.dot, { backgroundColor: connected ? "#22c55e" : "#f87171" }]} />
             {"  "}{connected ? "Connected" : "Connecting..."}
@@ -207,15 +191,7 @@ export default function ChatScreen() {
           <TouchableOpacity testID="attach-doc-btn" onPress={pickDoc} style={styles.iconBtn}>
             <Ionicons name="attach" size={22} color={colors.primary} />
           </TouchableOpacity>
-          <TextInput
-            testID="chat-input"
-            style={styles.input}
-            placeholder="Message..."
-            placeholderTextColor={colors.textLight}
-            value={text}
-            onChangeText={setText}
-            multiline
-          />
+          <TextInput testID="chat-input" style={styles.input} placeholder="Message..." placeholderTextColor={colors.textLight} value={text} onChangeText={setText} multiline />
           <TouchableOpacity testID="send-btn" onPress={send} style={styles.sendBtn}>
             <Ionicons name="send" size={20} color="#fff" />
           </TouchableOpacity>

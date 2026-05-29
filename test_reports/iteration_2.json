@@ -1,0 +1,47 @@
+{
+  "summary": "Iteration 2 multi-store feature set verified end-to-end. Backend: 24/24 pytest tests pass (100%) covering stores CRUD + Cash auto-seed, cascade delete, per-store scoping on tasks/heads/accounting/chat, employee allowed_stores enforcement, admin vs employee accounting view (balances/entries hidden for employee), Cash head un-deletable, historical date fetch without auto-create, and WebSocket store scoping (cross-store broadcast prevented; 4403 close for unauthorized store). Frontend (mobile viewport 390x844): Login → Select Store ('Main Store' card + 'Manage Stores' button) → Home (store pill 'Main Store', admin cards 'Manage Users' & 'Manage Stores') → Operations (5 cards: Opening, Accounting, Closing, Chat, Reports) → Accounting (Cash head shows 'Count Cash' button instead of input; admin sees Opening/Closing Balance + Net + Total Credit/Debit) → Cash modal (all 9 denominations 5¢/10¢/25¢/$1/$2/$5/$10/$50/$100; live total computes correctly — entered 3×$100 + 4×25¢ = $301.00; Save persists and button shows $301.00) → Reports (date picker showing today + 3 PDF download cards). All flows pass.",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [
+      {
+        "screen": "Global (React Native Web)",
+        "issues": [
+          "Console warning: 'props.pointerEvents is deprecated. Use style.pointerEvents' — cosmetic RN-web warning. Likely from a third-party library; not a blocker.",
+          "Older 'shadow*' style props deprecated warnings still present in Metro logs. Consider replacing with boxShadow when bandwidth allows."
+        ]
+      }
+    ],
+    "react_native_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/backend_test.py",
+    "/app/test_reports/pytest/pytest_results.xml"
+  ],
+  "action_items": [
+    "No functional blockers. Optional polish: replace deprecated shadow* style props with boxShadow; investigate source of 'props.pointerEvents is deprecated' warning."
+  ],
+  "critical_code_review_comments": [
+    "server.py is now ~720 lines; still acceptable but trending toward 'should split'. Consider routers/stores.py, routers/accounting.py, routers/checklists.py, routers/chat.py before iteration 3.",
+    "require_store_access correctly returns 404 for unknown store and 403 for unauthorized employee — clean.",
+    "Default store + Cash head + admin seeding on startup is idempotent (good). Backfills allowed_stores=[] on existing users.",
+    "Cash head protection via is_cash flag in delete_head is correct (400). Cascade delete in delete_store covers tasks, heads, entries, submissions, messages, and pulls from user.allowed_stores.",
+    "Employee accounting projection (opening_balance=None, closing_balance=None, entries={}) is enforced server-side — defense in depth is correct.",
+    "WebSocket /api/ws/chat enforces store_id required + per-store broadcast manager. Close code 4403 for unauthorized store works (verified).",
+    "Mongo _id correctly excluded everywhere via projections.",
+    "Frontend testIDs are now well-instrumented (login-*, store-*, cash-btn-*, denom-*, save-cash-btn, cash-total, net-amount, closing-balance) — testability is good."
+  ],
+  "updated_files": [
+    "/app/backend/tests/backend_test.py (rewritten for iteration 2: 24 tests covering stores, scoping, accounting view restrictions, WS scoping, historical dates)"
+  ],
+  "success_rate": {"backend": "100% (24/24)", "frontend": "100% on tested flows"},
+  "seed_data_creation": "Default admin (Admin/1234) and default store 'Main Store' (with auto-seeded Cash credit head) auto-created by backend startup. Tests create TEST_-prefixed stores, employees, tasks, and heads with full cleanup via fixtures.",
+  "retest_needed": false,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "Backend URL env key is EXPO_PUBLIC_BACKEND_URL. All store-scoped endpoints require ?store_id=X (return 422 if missing, 404 for unknown, 403 for employee w/o access). WebSocket /api/ws/chat requires both ?token=X&store_id=X; close code 4403 observed for cross-store employee. Cash head detection via is_cash:true. Frontend Cash modal denomination testIDs use unicode '¢' literal (e.g. denom-5¢, denom-25¢). PDF generation uses expo-print + expo-sharing — only buttons verified, actual PDF content not e2e-validated (web preview limitation).",
+  "rca_of_issue": "N/A — no failures this iteration."
+}
