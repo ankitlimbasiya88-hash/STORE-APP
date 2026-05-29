@@ -18,11 +18,17 @@ const baseStyles = `
   .sub { color: #64748B; font-size: 13px; margin-bottom: 24px; }
   .meta { display: flex; justify-content: space-between; margin-bottom: 16px; font-size: 12px; color: #64748B; }
   table { width: 100%; border-collapse: collapse; margin-bottom: 16px; }
-  th, td { text-align: left; padding: 10px 12px; border-bottom: 1px solid #E2E8F0; font-size: 13px; }
+  th, td { text-align: left; padding: 10px 12px; border-bottom: 1px solid #E2E8F0; font-size: 13px; vertical-align: top; }
   th { background: #F1F5F9; color: #475569; font-weight: 600; text-transform: uppercase; font-size: 11px; letter-spacing: 0.5px; }
-  td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
+  td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
   .credit { color: #16A34A; }
   .debit { color: #DC2626; }
+  .note { color: #64748B; font-size: 11px; margin-top: 3px; font-style: italic; }
+  .multi-head td { background: #F8FAFC; font-weight: 700; color: #1E293B; border-bottom: 2px solid #E2E8F0; padding-top: 12px; }
+  .multi-item td { padding-top: 6px; padding-bottom: 6px; }
+  .multi-item td:first-child { padding-left: 28px; color: #334155; }
+  .multi-subtotal td { background: #FAFAFA; font-weight: 700; border-top: 1px solid #CBD5E1; }
+  .multi-subtotal td:first-child { text-align: right; color: #475569; font-style: italic; padding-right: 12px; }
   .totals { margin-top: 24px; border-top: 2px solid #1E40AF; padding-top: 12px; }
   .totals .row { display: flex; justify-content: space-between; padding: 6px 0; font-size: 14px; }
   .totals .net { font-weight: 700; font-size: 18px; color: #1E40AF; margin-top: 6px; padding-top: 10px; border-top: 1px solid #E2E8F0; }
@@ -125,21 +131,25 @@ export const buildAccountingHtml = (d: AccountingReportData): string => {
   const rowFor = (h: { id: string; name: string; type: string; allow_notes?: boolean; multiple_entries?: boolean }): string => {
     const val = d.entries[h.id];
     const total = entryAmount(val);
-    // Multi-entry head: list each item
+    // Multi-entry head: list each item with a banner row + indented items + subtotal
     if (h.multiple_entries && Array.isArray(val) && val.length > 0) {
       const itemsHtml = val
         .map((it: any) => {
           const label = escape(it.label || "—");
-          const note = it.note ? `<div style="color:#64748B;font-size:11px;margin-top:2px;">${escape(it.note)}</div>` : "";
+          const note = it.note ? `<div class="note">${escape(it.note)}</div>` : "";
           const amt = Number(it.amount) || 0;
-          return `<tr><td style="padding-left:24px;">• ${label}${note}</td><td class="num ${h.type}">${money(amt)}</td></tr>`;
+          return `<tr class="multi-item"><td>• ${label}${note}</td><td class="num ${h.type}">${money(amt)}</td></tr>`;
         })
         .join("");
-      return `<tr><td colspan="2" style="background:#F8FAFC;font-weight:600;">${escape(h.name)}</td></tr>${itemsHtml}<tr><td style="text-align:right;font-weight:600;color:#475569;">Subtotal</td><td class="num ${h.type}" style="font-weight:700;">${money(total)}</td></tr>`;
+      return `<tr class="multi-head"><td>${escape(h.name)} <span style="font-weight:400;color:#64748B;font-size:11px;">(${val.length} ${val.length === 1 ? "entry" : "entries"})</span></td><td class="num ${h.type}" style="font-weight:700;">${money(total)}</td></tr>${itemsHtml}<tr class="multi-subtotal"><td>Subtotal</td><td class="num ${h.type}">${money(total)}</td></tr>`;
+    }
+    // Multi-entry head but no items yet
+    if (h.multiple_entries) {
+      return `<tr><td>${escape(h.name)} <span style="color:#94A3B8;font-size:11px;">(no entries)</span></td><td class="num ${h.type}">${money(0)}</td></tr>`;
     }
     // Single with note
     if (h.allow_notes && val && typeof val === "object" && !Array.isArray(val)) {
-      const note = (val as any).note ? `<div style="color:#64748B;font-size:11px;margin-top:2px;">${escape((val as any).note)}</div>` : "";
+      const note = (val as any).note ? `<div class="note">${escape((val as any).note)}</div>` : "";
       return `<tr><td>${escape(h.name)}${note}</td><td class="num ${h.type}">${money(total)}</td></tr>`;
     }
     return `<tr><td>${escape(h.name)}</td><td class="num ${h.type}">${money(total)}</td></tr>`;

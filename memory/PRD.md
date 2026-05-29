@@ -18,6 +18,13 @@ Multi-store grocery operations app (React Native Expo + FastAPI + MongoDB). Role
 ## New API endpoints (iter 2.1)
 - `POST /api/accounting/entry/set?store_id=…` — body `{head_id, value}`. `value` may be a number, an object `{amount, note}`, or a list of items `[{id, label, note, amount}]`. Replaces the entire stored value for that head.
 
+## Reports screen (iter 2.2)
+- Inline preview for any selected date — shows Opening, Closing, and Accounting summary cards before downloading.
+- Admin sees per-head detail: notes inline, and multi-entry heads expand into a sub-panel listing each `{label, note, amount}` item.
+- All header / section buttons carry text labels next to icons (Back, Download Opening/Closing/Accounting PDF) so the screen remains usable even if vector icons fail to load on Expo Go.
+- Pull-to-refresh re-fetches data for the picked date.
+- PDF report styling: multi-entry head shows banner row + indented bullet items + italicized notes + subtotal row; entry count shown beside head name.
+
 ## Architecture
 - **Frontend**: Expo SDK 54, expo-router, TypeScript
 - **Backend**: FastAPI + Motor (MongoDB)
