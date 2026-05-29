@@ -5,6 +5,7 @@ import {
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
+import { AppIcon } from "@/src/components/AppIcon";
 import { router } from "expo-router";
 
 import { useSession } from "@/src/ctx/SessionProvider";
@@ -57,12 +58,12 @@ export default function StoresManageScreen() {
     <SafeAreaView style={styles.container} edges={["top"]}>
       <View style={styles.header}>
         <TouchableOpacity testID="back-btn" onPress={() => router.back()} style={styles.iconBtn}>
-          <Ionicons name="chevron-back" size={26} color="#fff" />
+          <AppIcon name="back" size={26} color="#fff" />
           <Text style={styles.btnLabel}>Back</Text>
         </TouchableOpacity>
         <Text style={styles.headerTitle}>Manage Stores</Text>
         <TouchableOpacity testID="add-store-btn" onPress={() => setModalOpen(true)} style={styles.headerAction}>
-          <Ionicons name="add" size={20} color="#fff" />
+          <AppIcon name="plus" size={20} color="#fff" />
           <Text style={styles.btnLabel}>Add</Text>
         </TouchableOpacity>
       </View>
@@ -81,7 +82,7 @@ export default function StoresManageScreen() {
               </View>
               <Text style={styles.name}>{s.name}</Text>
               <TouchableOpacity testID={`remove-store-${s.id}`} onPress={() => remove(s.id, s.name)} hitSlop={10}>
-                <Ionicons name="trash-outline" size={20} color={colors.danger} />
+                <AppIcon name="trash" size={20} color={colors.danger} />
               </TouchableOpacity>
             </View>
           ))

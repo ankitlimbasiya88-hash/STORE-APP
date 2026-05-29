@@ -25,6 +25,11 @@ Multi-store grocery operations app (React Native Expo + FastAPI + MongoDB). Role
 - Pull-to-refresh re-fetches data for the picked date.
 - PDF report styling: multi-entry head shows banner row + indented bullet items + italicized notes + subtotal row; entry count shown beside head name.
 
+## Font-free icons (iter 2.3)
+- Added `/app/frontend/src/components/AppIcon.tsx` — a tiny icon library built from plain `<View>` borders (chevrons, plus, close, check, download, calendar, sun, moon, trash, cash). No font dependency = guaranteed to render on Expo Go even when `@expo/vector-icons` fails to load Ionicons.
+- Replaced 35+ `<Ionicons />` usages across 10 screens with `<AppIcon />`, prioritizing navigation (back, forward), action buttons (add, close, trash, download, calendar), and indicators (check, sun, moon).
+- Decorative-only Ionicons (storefront, business, cube, calculator etc.) kept as-is since they sit next to text labels.
+
 ## Architecture
 - **Frontend**: Expo SDK 54, expo-router, TypeScript
 - **Backend**: FastAPI + Motor (MongoDB)

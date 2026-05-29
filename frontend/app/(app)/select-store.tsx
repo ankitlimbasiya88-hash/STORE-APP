@@ -5,6 +5,7 @@ import {
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
+import { AppIcon } from "@/src/components/AppIcon";
 import { router, useLocalSearchParams } from "expo-router";
 
 import { useSession } from "@/src/ctx/SessionProvider";
@@ -38,7 +39,7 @@ export default function SelectStoreScreen() {
       <View style={styles.header}>
         {isSwitching ? (
           <TouchableOpacity testID="back-btn" onPress={() => router.back()} style={styles.iconBtn}>
-            <Ionicons name="chevron-back" size={26} color="#fff" />
+            <AppIcon name="back" size={26} color="#fff" />
             <Text style={styles.btnLabel}>Back</Text>
           </TouchableOpacity>
         ) : <View style={{ width: 40 }} />}
@@ -85,7 +86,7 @@ export default function SelectStoreScreen() {
                 <Text style={styles.storeName}>{s.name}</Text>
                 <Text style={styles.storeSub}>Tap to enter</Text>
               </View>
-              <Ionicons name="chevron-forward" size={22} color={colors.textMuted} />
+              <AppIcon name="forward" size={22} color={colors.textMuted} />
             </TouchableOpacity>
           ))
         )}

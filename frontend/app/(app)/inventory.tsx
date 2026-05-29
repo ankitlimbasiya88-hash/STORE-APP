@@ -2,6 +2,7 @@ import React from "react";
 import { View, Text, StyleSheet, TouchableOpacity } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
+import { AppIcon } from "@/src/components/AppIcon";
 import { router } from "expo-router";
 import { colors, spacing, radius } from "@/src/theme/colors";
 
@@ -10,7 +11,7 @@ export default function InventoryScreen() {
     <SafeAreaView style={styles.container} edges={["top"]}>
       <View style={styles.header}>
         <TouchableOpacity testID="back-btn" onPress={() => router.back()} style={styles.backBtn}>
-          <Ionicons name="chevron-back" size={26} color="#fff" />
+          <AppIcon name="back" size={26} color="#fff" />
         </TouchableOpacity>
         <Text style={styles.title}>Inventory & Orders</Text>
         <View style={{ width: 40 }} />

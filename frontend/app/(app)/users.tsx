@@ -5,6 +5,7 @@ import {
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
+import { AppIcon } from "@/src/components/AppIcon";
 import { router } from "expo-router";
 
 import { useSession, User } from "@/src/ctx/SessionProvider";
@@ -110,7 +111,7 @@ export default function UsersScreen() {
     <SafeAreaView style={styles.container} edges={["top"]}>
       <View style={styles.header}>
         <TouchableOpacity testID="back-btn" onPress={() => router.back()} style={styles.backBtn}>
-          <Ionicons name="chevron-back" size={26} color="#fff" />
+          <AppIcon name="back" size={26} color="#fff" />
           <Text style={styles.btnLabel}>Back</Text>
         </TouchableOpacity>
         <Text style={styles.headerTitle}>Manage Users</Text>
@@ -139,7 +140,7 @@ export default function UsersScreen() {
               )}
               {u.id !== session?.user.id && (
                 <TouchableOpacity testID={`remove-user-${u.name}`} onPress={() => remove(u)} hitSlop={10}>
-                  <Ionicons name="trash-outline" size={20} color={colors.danger} />
+                  <AppIcon name="trash" size={20} color={colors.danger} />
                 </TouchableOpacity>
               )}
             </View>

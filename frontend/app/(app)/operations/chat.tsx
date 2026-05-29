@@ -5,6 +5,7 @@ import {
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
+import { AppIcon } from "@/src/components/AppIcon";
 import { router } from "expo-router";
 import * as ImagePicker from "expo-image-picker";
 import * as DocumentPicker from "expo-document-picker";
@@ -149,7 +150,7 @@ export default function ChatScreen() {
     <SafeAreaView style={styles.container} edges={["top", "bottom"]}>
       <View style={styles.header}>
         <TouchableOpacity testID="back-btn" onPress={() => router.back()} style={styles.backBtn}>
-          <Ionicons name="chevron-back" size={26} color="#fff" />
+          <AppIcon name="back" size={26} color="#fff" />
         </TouchableOpacity>
         <View style={{ flex: 1 }}>
           <Text style={styles.headerTitle}>{storeName ? `${storeName} Chat` : "Team Chat"}</Text>
@@ -179,7 +180,7 @@ export default function ChatScreen() {
             <Ionicons name={pending.type === "image" ? "image" : "document"} size={20} color={colors.primary} />
             <Text style={styles.pendingName} numberOfLines={1}>{pending.filename}</Text>
             <TouchableOpacity testID="clear-attachment-btn" onPress={() => setPending(null)}>
-              <Ionicons name="close-circle" size={22} color={colors.textMuted} />
+              <AppIcon name="close" size={22} color={colors.textMuted} />
             </TouchableOpacity>
           </View>
         )}

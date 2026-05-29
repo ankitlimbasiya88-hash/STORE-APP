@@ -5,6 +5,7 @@ import {
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
+import { AppIcon } from "@/src/components/AppIcon";
 import { router } from "expo-router";
 import DateTimePicker from "@react-native-community/datetimepicker";
 
@@ -275,7 +276,7 @@ export default function ReportsScreen() {
     <SafeAreaView style={styles.container} edges={["top"]}>
       <View style={styles.header}>
         <TouchableOpacity testID="back-btn" onPress={() => router.back()} style={styles.backBtn}>
-          <Ionicons name="chevron-back" size={22} color="#fff" />
+          <AppIcon name="back" size={22} color="#fff" />
           <Text style={styles.btnLabel}>Back</Text>
         </TouchableOpacity>
         <Text style={styles.headerTitle}>Reports</Text>
@@ -288,9 +289,9 @@ export default function ReportsScreen() {
       >
         <Text style={styles.sectionLabel}>Select date</Text>
         <TouchableOpacity testID="date-picker-btn" style={styles.dateBox} onPress={() => setShowPicker(true)}>
-          <Ionicons name="calendar" size={20} color={colors.primary} />
+          <AppIcon name="calendar" size={20} color={colors.primary} />
           <Text style={styles.dateText}>{date.toLocaleDateString("en-US", { weekday: "long", year: "numeric", month: "long", day: "numeric" })}</Text>
-          <Ionicons name="chevron-down" size={18} color={colors.textMuted} />
+          <AppIcon name="down" size={18} color={colors.textMuted} />
         </TouchableOpacity>
 
         {showPicker && (
@@ -322,7 +323,7 @@ export default function ReportsScreen() {
               {busy === "opening" ? (
                 <ActivityIndicator color={colors.primary} />
               ) : (
-                <Ionicons name="download-outline" size={18} color={colors.primary} />
+                <AppIcon name="download" size={18} color={colors.primary} />
               )}
               <Text style={styles.pdfBtnText}>{busy === "opening" ? "Generating..." : "Download Opening Checklist PDF"}</Text>
             </TouchableOpacity>
@@ -339,7 +340,7 @@ export default function ReportsScreen() {
               {busy === "closing" ? (
                 <ActivityIndicator color={colors.primary} />
               ) : (
-                <Ionicons name="download-outline" size={18} color={colors.primary} />
+                <AppIcon name="download" size={18} color={colors.primary} />
               )}
               <Text style={styles.pdfBtnText}>{busy === "closing" ? "Generating..." : "Download Closing Checklist PDF"}</Text>
             </TouchableOpacity>
@@ -356,7 +357,7 @@ export default function ReportsScreen() {
               {busy === "accounting" ? (
                 <ActivityIndicator color={colors.primary} />
               ) : (
-                <Ionicons name="download-outline" size={18} color={colors.primary} />
+                <AppIcon name="download" size={18} color={colors.primary} />
               )}
               <Text style={styles.pdfBtnText}>{busy === "accounting" ? "Generating..." : "Download Accounting PDF"}</Text>
             </TouchableOpacity>

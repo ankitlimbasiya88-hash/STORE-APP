@@ -2,15 +2,19 @@ import React from "react";
 import { View, Text, StyleSheet, TouchableOpacity, ScrollView } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
+import { AppIcon, AppIconName } from "@/src/components/AppIcon";
 import { router } from "expo-router";
 import { colors, spacing, radius } from "@/src/theme/colors";
 
-const FUNCTIONS = [
-  { key: "opening", title: "Opening Checklist", desc: "Start-of-day tasks", icon: "sunny", color: "#F59E0B", bg: "#FEF3C7", route: "/(app)/operations/opening" as const },
-  { key: "accounting", title: "Accounting", desc: "Daily credit & debit", icon: "calculator", color: colors.primary, bg: "#DBEAFE", route: "/(app)/operations/accounting" as const },
-  { key: "closing", title: "Closing Checklist", desc: "End-of-day tasks", icon: "moon", color: "#7C3AED", bg: "#EDE9FE", route: "/(app)/operations/closing" as const },
+const FUNCTIONS: Array<{
+  key: string; title: string; desc: string; icon: string;
+  appIcon?: AppIconName; color: string; bg: string; route: any;
+}> = [
+  { key: "opening", title: "Opening Checklist", desc: "Start-of-day tasks", icon: "sunny", appIcon: "sun", color: "#F59E0B", bg: "#FEF3C7", route: "/(app)/operations/opening" as const },
+  { key: "accounting", title: "Accounting", desc: "Daily credit & debit", icon: "calculator", appIcon: "cash", color: colors.primary, bg: "#DBEAFE", route: "/(app)/operations/accounting" as const },
+  { key: "closing", title: "Closing Checklist", desc: "End-of-day tasks", icon: "moon", appIcon: "moon", color: "#7C3AED", bg: "#EDE9FE", route: "/(app)/operations/closing" as const },
   { key: "chat", title: "Chat", desc: "Team conversations", icon: "chatbubbles", color: colors.success, bg: "#DCFCE7", route: "/(app)/operations/chat" as const },
-  { key: "reports", title: "Reports", desc: "Historical reports & PDFs", icon: "document-text", color: "#0EA5E9", bg: "#E0F2FE", route: "/(app)/operations/reports" as const },
+  { key: "reports", title: "Reports", desc: "Historical reports & PDFs", icon: "document-text", appIcon: "download", color: "#0EA5E9", bg: "#E0F2FE", route: "/(app)/operations/reports" as const },
 ];
 
 export default function OperationsScreen() {
@@ -18,7 +22,7 @@ export default function OperationsScreen() {
     <SafeAreaView style={styles.container} edges={["top"]}>
       <View style={styles.header}>
         <TouchableOpacity testID="back-btn" onPress={() => router.back()} style={styles.backBtn}>
-          <Ionicons name="chevron-back" size={26} color="#fff" />
+          <AppIcon name="back" size={26} color="#fff" />
         </TouchableOpacity>
         <Text style={styles.title}>Store Operations</Text>
         <View style={{ width: 40 }} />
@@ -27,13 +31,17 @@ export default function OperationsScreen() {
         {FUNCTIONS.map((f) => (
           <TouchableOpacity key={f.key} testID={`ops-card-${f.key}`} style={styles.card} onPress={() => router.push(f.route)} activeOpacity={0.85}>
             <View style={[styles.iconWrap, { backgroundColor: f.bg }]}>
-              <Ionicons name={f.icon as any} size={28} color={f.color} />
+              {f.appIcon ? (
+                <AppIcon name={f.appIcon} size={28} color={f.color} />
+              ) : (
+                <Ionicons name={f.icon as any} size={28} color={f.color} />
+              )}
             </View>
             <View style={styles.cardBody}>
               <Text style={styles.cardTitle}>{f.title}</Text>
               <Text style={styles.cardDesc}>{f.desc}</Text>
             </View>
-            <Ionicons name="chevron-forward" size={22} color={colors.textMuted} />
+            <AppIcon name="forward" size={22} color={colors.textMuted} />
           </TouchableOpacity>
         ))}
       </ScrollView>

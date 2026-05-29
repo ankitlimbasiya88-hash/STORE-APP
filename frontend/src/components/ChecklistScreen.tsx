@@ -5,6 +5,7 @@ import {
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
+import { AppIcon } from "@/src/components/AppIcon";
 import { router } from "expo-router";
 
 import { useSession } from "@/src/ctx/SessionProvider";
@@ -119,7 +120,7 @@ export default function ChecklistScreen({ type, title, accentColor }: {
     <SafeAreaView style={styles.container} edges={["top"]}>
       <View style={[styles.header, { backgroundColor: accentColor }]}>
         <TouchableOpacity testID="back-btn" onPress={() => router.back()} style={styles.backBtn}>
-          <Ionicons name="chevron-back" size={26} color="#fff" />
+          <AppIcon name="back" size={26} color="#fff" />
           <Text style={styles.btnLabel}>Back</Text>
         </TouchableOpacity>
         <Text style={styles.headerTitle}>{title}</Text>
@@ -165,7 +166,7 @@ export default function ChecklistScreen({ type, title, accentColor }: {
                 onChangeText={setNewTitle}
               />
               <TouchableOpacity testID="add-task-btn" style={styles.addBtn} onPress={addTask} disabled={busy}>
-                <Ionicons name="add" size={22} color="#fff" />
+                <AppIcon name="plus" size={22} color="#fff" />
               </TouchableOpacity>
             </View>
           )}
@@ -183,12 +184,12 @@ export default function ChecklistScreen({ type, title, accentColor }: {
               return (
                 <TouchableOpacity key={t.id} testID={`task-${t.id}`} style={[styles.taskRow, isDone && styles.taskRowDone]} onPress={() => toggle(t.id, !isDone)} disabled={data.submitted} activeOpacity={0.7}>
                   <View style={[styles.checkbox, isDone && { backgroundColor: colors.success, borderColor: colors.success }]}>
-                    {isDone && <Ionicons name="checkmark" size={16} color="#fff" />}
+                    {isDone && <AppIcon name="check" size={16} color="#fff" />}
                   </View>
                   <Text style={[styles.taskTitle, isDone && styles.taskTitleDone]}>{t.title}</Text>
                   {isAdmin && !data.submitted && (
                     <TouchableOpacity testID={`remove-task-${t.id}`} onPress={() => removeTask(t.id)} hitSlop={10}>
-                      <Ionicons name="trash-outline" size={20} color={colors.danger} />
+                      <AppIcon name="trash" size={20} color={colors.danger} />
                     </TouchableOpacity>
                   )}
                 </TouchableOpacity>
@@ -197,7 +198,7 @@ export default function ChecklistScreen({ type, title, accentColor }: {
           )}
 
           <TouchableOpacity testID="pdf-btn" style={styles.pdfBtn} onPress={downloadPdf}>
-            <Ionicons name="download-outline" size={20} color={colors.primary} />
+            <AppIcon name="download" size={20} color={colors.primary} />
             <Text style={styles.pdfText}>Download PDF Report</Text>
           </TouchableOpacity>
         </ScrollView>

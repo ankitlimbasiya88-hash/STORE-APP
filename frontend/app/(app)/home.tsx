@@ -2,6 +2,7 @@ import React, { useEffect } from "react";
 import { View, Text, StyleSheet, TouchableOpacity, ScrollView, Alert } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
+import { AppIcon } from "@/src/components/AppIcon";
 import { router, Redirect } from "expo-router";
 
 import { useSession } from "@/src/ctx/SessionProvider";
@@ -65,7 +66,7 @@ export default function HomeScreen() {
             <Text style={styles.cardTitle}>Store Operations</Text>
             <Text style={styles.cardDesc}>Checklists, accounting, and chat</Text>
           </View>
-          <Ionicons name="chevron-forward" size={22} color={colors.textMuted} />
+          <AppIcon name="forward" size={22} color={colors.textMuted} />
         </TouchableOpacity>
 
         <TouchableOpacity testID="card-inventory" style={[styles.card]} onPress={() => router.push("/(app)/inventory")} activeOpacity={0.85}>
@@ -76,7 +77,7 @@ export default function HomeScreen() {
             <Text style={styles.cardTitle}>Inventory & Orders</Text>
             <Text style={styles.cardDesc}>Pricing, purchasing, ordering</Text>
           </View>
-          <Ionicons name="chevron-forward" size={22} color={colors.textMuted} />
+          <AppIcon name="forward" size={22} color={colors.textMuted} />
         </TouchableOpacity>
 
         {user.role === "admin" && (
@@ -91,7 +92,7 @@ export default function HomeScreen() {
                 <Text style={styles.cardTitle}>Manage Users</Text>
                 <Text style={styles.cardDesc}>Add, remove & assign stores</Text>
               </View>
-              <Ionicons name="chevron-forward" size={22} color={colors.textMuted} />
+              <AppIcon name="forward" size={22} color={colors.textMuted} />
             </TouchableOpacity>
 
             <TouchableOpacity testID="card-stores" style={[styles.card]} onPress={() => router.push("/(app)/stores-manage")} activeOpacity={0.85}>
@@ -102,7 +103,7 @@ export default function HomeScreen() {
                 <Text style={styles.cardTitle}>Manage Stores</Text>
                 <Text style={styles.cardDesc}>Add or remove store locations</Text>
               </View>
-              <Ionicons name="chevron-forward" size={22} color={colors.textMuted} />
+              <AppIcon name="forward" size={22} color={colors.textMuted} />
             </TouchableOpacity>
           </>
         )}
