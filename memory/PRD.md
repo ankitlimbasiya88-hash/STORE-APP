@@ -10,6 +10,13 @@ Multi-store grocery operations app (React Native Expo + FastAPI + MongoDB). Role
 4. **Historical reports** — Reports screen with a date picker lets you generate PDFs for any past date.
 5. **Cash counter modal** — under Credits, a special seeded "Cash" head opens a denominations counter (5¢ / 10¢ / 25¢ / $1 / $2 / $5 / $10 / $50 / $100). Total auto-fills the Cash credit amount.
 6. **Employee restriction** — employees see only `total_credit`, `total_debit`, and `net` (credit − debit) in the accounting summary. Opening balance, closing balance, and individual head amounts are hidden.
+7. **Per-head options when admin creates an account head**:
+   - **Notes box** (`allow_notes`) — adds a small notes field beneath the amount so context can be recorded with each entry.
+   - **Multiple entries** (`multiple_entries`) — turns the head into a multi-line list. Admin/employee can add several `{label, note, amount}` items per day; head total is the sum of items. Useful for misc expenses, multiple sales channels, etc.
+   - The two options are mutually exclusive in the UI.
+
+## New API endpoints (iter 2.1)
+- `POST /api/accounting/entry/set?store_id=…` — body `{head_id, value}`. `value` may be a number, an object `{amount, note}`, or a list of items `[{id, label, note, amount}]`. Replaces the entire stored value for that head.
 
 ## Architecture
 - **Frontend**: Expo SDK 54, expo-router, TypeScript
