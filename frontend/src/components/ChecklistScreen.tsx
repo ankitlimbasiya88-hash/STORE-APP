@@ -120,11 +120,10 @@ export default function ChecklistScreen({ type, title, accentColor }: {
       <View style={[styles.header, { backgroundColor: accentColor }]}>
         <TouchableOpacity testID="back-btn" onPress={() => router.back()} style={styles.backBtn}>
           <Ionicons name="chevron-back" size={26} color="#fff" />
+          <Text style={styles.btnLabel}>Back</Text>
         </TouchableOpacity>
         <Text style={styles.headerTitle}>{title}</Text>
-        <TouchableOpacity testID="pdf-btn" onPress={downloadPdf} style={styles.backBtn}>
-          <Ionicons name="download-outline" size={22} color="#fff" />
-        </TouchableOpacity>
+        <View style={{ width: 40 }} />
       </View>
 
       <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === "ios" ? "padding" : undefined}>
@@ -196,6 +195,11 @@ export default function ChecklistScreen({ type, title, accentColor }: {
               );
             })
           )}
+
+          <TouchableOpacity testID="pdf-btn" style={styles.pdfBtn} onPress={downloadPdf}>
+            <Ionicons name="download-outline" size={20} color={colors.primary} />
+            <Text style={styles.pdfText}>Download PDF Report</Text>
+          </TouchableOpacity>
         </ScrollView>
 
         {!data.submitted && total > 0 && (
@@ -217,7 +221,10 @@ const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: colors.bg },
   loader: { flex: 1, alignItems: "center", justifyContent: "center", backgroundColor: colors.bg },
   header: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingHorizontal: spacing.md, paddingVertical: spacing.md },
-  backBtn: { width: 40, height: 40, borderRadius: 20, alignItems: "center", justifyContent: "center", backgroundColor: "rgba(255,255,255,0.18)", marginLeft: 4 },
+  backBtn: { flexDirection: "row", alignItems: "center", gap: 2, paddingHorizontal: 10, paddingVertical: 6, borderRadius: 20, backgroundColor: "rgba(255,255,255,0.18)" },
+  btnLabel: { color: "#fff", fontSize: 13, fontWeight: "700" },
+  pdfBtn: { flexDirection: "row", justifyContent: "center", alignItems: "center", gap: 8, backgroundColor: "#EFF6FF", borderWidth: 1.5, borderColor: colors.primary, padding: 14, borderRadius: radius.md, marginTop: spacing.md, marginBottom: spacing.md },
+  pdfText: { color: colors.primary, fontWeight: "700", fontSize: 15 },
   headerTitle: { color: "#fff", fontSize: 18, fontWeight: "700" },
   content: { padding: spacing.lg, paddingBottom: 100 },
   statsRow: { flexDirection: "row", gap: spacing.sm, marginBottom: spacing.md },

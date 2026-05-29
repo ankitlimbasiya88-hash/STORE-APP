@@ -39,12 +39,14 @@ export default function SelectStoreScreen() {
         {isSwitching ? (
           <TouchableOpacity testID="back-btn" onPress={() => router.back()} style={styles.iconBtn}>
             <Ionicons name="chevron-back" size={26} color="#fff" />
+            <Text style={styles.btnLabel}>Back</Text>
           </TouchableOpacity>
         ) : <View style={{ width: 40 }} />}
         <Text style={styles.headerTitle}>{isSwitching ? "Switch Store" : "Select Store"}</Text>
         {isSwitching ? <View style={{ width: 40 }} /> : (
           <TouchableOpacity testID="logout-btn" onPress={signOut} style={styles.iconBtn}>
-            <Ionicons name="log-out-outline" size={22} color="#fff" />
+            <Ionicons name="log-out-outline" size={18} color="#fff" />
+            <Text style={styles.btnLabel}>Sign out</Text>
           </TouchableOpacity>
         )}
       </View>
@@ -110,7 +112,8 @@ const styles = StyleSheet.create({
     flexDirection: "row", alignItems: "center", justifyContent: "space-between",
     backgroundColor: colors.primary, paddingHorizontal: spacing.md, paddingVertical: spacing.md,
   },
-  iconBtn: { width: 40, height: 40, alignItems: "center", justifyContent: "center", borderRadius: 20, backgroundColor: "rgba(255,255,255,0.18)" },
+  iconBtn: { flexDirection: "row", alignItems: "center", gap: 4, paddingHorizontal: 12, paddingVertical: 8, borderRadius: 20, backgroundColor: "rgba(255,255,255,0.25)" },
+  btnLabel: { color: "#fff", fontSize: 13, fontWeight: "700" },
   headerTitle: { color: "#fff", fontSize: 18, fontWeight: "700" },
   content: { padding: spacing.lg, gap: spacing.sm },
   greeting: { fontSize: 22, fontWeight: "700", color: colors.text, marginTop: spacing.sm },

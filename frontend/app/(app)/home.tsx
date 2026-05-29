@@ -35,7 +35,8 @@ export default function HomeScreen() {
           </View>
         </View>
         <TouchableOpacity testID="logout-btn" onPress={onLogout} style={styles.logoutBtn}>
-          <Ionicons name="log-out-outline" size={22} color="#fff" />
+          <Ionicons name="log-out-outline" size={20} color="#fff" />
+          <Text style={styles.logoutText}>Sign out</Text>
         </TouchableOpacity>
       </View>
 
@@ -118,7 +119,8 @@ const styles = StyleSheet.create({
   roleBadge: { flexDirection: "row", alignItems: "center", gap: 4, backgroundColor: "rgba(255,255,255,0.18)", alignSelf: "flex-start", paddingHorizontal: 10, paddingVertical: 4, borderRadius: 12, marginTop: 8 },
   adminBadge: { backgroundColor: "rgba(255,255,255,0.25)" },
   roleText: { color: "#fff", fontSize: 11, fontWeight: "700", marginLeft: 4, letterSpacing: 0.5 },
-  logoutBtn: { width: 40, height: 40, borderRadius: 20, alignItems: "center", justifyContent: "center", backgroundColor: "rgba(255,255,255,0.18)" },
+  logoutBtn: { flexDirection: "row", alignItems: "center", gap: 4, paddingHorizontal: 12, paddingVertical: 8, borderRadius: 20, backgroundColor: "rgba(255,255,255,0.25)" },
+  logoutText: { color: "#fff", fontWeight: "700", fontSize: 13 },
   storePill: { flexDirection: "row", alignItems: "center", gap: spacing.sm, backgroundColor: colors.card, marginHorizontal: spacing.lg, marginTop: -spacing.md, padding: spacing.md, borderRadius: radius.md, borderWidth: 1, borderColor: colors.border },
   storeLabel: { fontSize: 11, color: colors.textMuted, letterSpacing: 0.5, textTransform: "uppercase" },
   storeName: { fontSize: 16, fontWeight: "700", color: colors.text, marginTop: 2 },

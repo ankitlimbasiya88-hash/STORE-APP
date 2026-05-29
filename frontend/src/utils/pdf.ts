@@ -89,8 +89,15 @@ export const buildChecklistHtml = (d: ChecklistReportData): string => {
 export type AccountingReportData = {
   storeName: string;
   date: string;
-  heads: { id: string; name: string; type: "credit" | "debit"; is_cash?: boolean }[];
-  entries: Record<string, number>; // may be empty for employee
+  heads: {
+    id: string;
+    name: string;
+    type: "credit" | "debit";
+    is_cash?: boolean;
+    allow_notes?: boolean;
+    multiple_entries?: boolean;
+  }[];
+  entries: Record<string, any>; // number | {amount,note} | [{label,note,amount}]
   openingBalance: number | null;   // null = hidden (employee)
   closingBalance: number | null;
   totalCredit: number;
@@ -102,13 +109,40 @@ export type AccountingReportData = {
   showBalances: boolean;
 };
 
+const entryAmount = (v: any): number => {
+  if (v === null || v === undefined) return 0;
+  if (typeof v === "number") return v;
+  if (typeof v === "string") return parseFloat(v) || 0;
+  if (Array.isArray(v)) return v.reduce((s, it) => s + (Number(it?.amount) || 0), 0);
+  if (typeof v === "object") return Number(v.amount) || 0;
+  return 0;
+};
+
 export const buildAccountingHtml = (d: AccountingReportData): string => {
   const credits = d.heads.filter((h) => h.type === "credit");
   const debits = d.heads.filter((h) => h.type === "debit");
 
-  const rowFor = (h: { id: string; name: string; type: string }): string => {
-    const amt = d.entries[h.id] ?? 0;
-    return `<tr><td>${escape(h.name)}</td><td class="num ${h.type}">${money(amt)}</td></tr>`;
+  const rowFor = (h: { id: string; name: string; type: string; allow_notes?: boolean; multiple_entries?: boolean }): string => {
+    const val = d.entries[h.id];
+    const total = entryAmount(val);
+    // Multi-entry head: list each item
+    if (h.multiple_entries && Array.isArray(val) && val.length > 0) {
+      const itemsHtml = val
+        .map((it: any) => {
+          const label = escape(it.label || "—");
+          const note = it.note ? `<div style="color:#64748B;font-size:11px;margin-top:2px;">${escape(it.note)}</div>` : "";
+          const amt = Number(it.amount) || 0;
+          return `<tr><td style="padding-left:24px;">• ${label}${note}</td><td class="num ${h.type}">${money(amt)}</td></tr>`;
+        })
+        .join("");
+      return `<tr><td colspan="2" style="background:#F8FAFC;font-weight:600;">${escape(h.name)}</td></tr>${itemsHtml}<tr><td style="text-align:right;font-weight:600;color:#475569;">Subtotal</td><td class="num ${h.type}" style="font-weight:700;">${money(total)}</td></tr>`;
+    }
+    // Single with note
+    if (h.allow_notes && val && typeof val === "object" && !Array.isArray(val)) {
+      const note = (val as any).note ? `<div style="color:#64748B;font-size:11px;margin-top:2px;">${escape((val as any).note)}</div>` : "";
+      return `<tr><td>${escape(h.name)}${note}</td><td class="num ${h.type}">${money(total)}</td></tr>`;
+    }
+    return `<tr><td>${escape(h.name)}</td><td class="num ${h.type}">${money(total)}</td></tr>`;
   };
 
   const creditRows = credits.length ? credits.map(rowFor).join("") : `<tr><td colspan="2" style="color:#94A3B8;">No credit heads</td></tr>`;

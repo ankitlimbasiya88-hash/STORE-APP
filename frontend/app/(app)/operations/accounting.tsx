@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useState } from "react";
 import {
   View, Text, StyleSheet, TouchableOpacity, ScrollView, TextInput, ActivityIndicator,
-  Alert, KeyboardAvoidingView, Platform, Modal, RefreshControl,
+  Alert, KeyboardAvoidingView, Platform, Modal, RefreshControl, Switch,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
@@ -11,7 +11,17 @@ import { useSession } from "@/src/ctx/SessionProvider";
 import { colors, spacing, radius } from "@/src/theme/colors";
 import { buildAccountingHtml, generateAndShare } from "@/src/utils/pdf";
 
-type Head = { id: string; name: string; type: "credit" | "debit"; is_cash?: boolean; created_at: string };
+type Head = {
+  id: string;
+  name: string;
+  type: "credit" | "debit";
+  is_cash?: boolean;
+  allow_notes?: boolean;
+  multiple_entries?: boolean;
+  created_at: string;
+};
+type MultiItem = { id: string; label?: string; note?: string; amount: number };
+type EntryValue = number | { amount: number; note?: string } | MultiItem[];
 type AccData = {
   date: string;
   store_id: string;
@@ -19,7 +29,7 @@ type AccData = {
   opening_balance: number | null;
   closing_balance: number | null;
   heads: Head[];
-  entries: Record<string, number>;
+  entries: Record<string, EntryValue>;
   total_credit: number;
   total_debit: number;
   net: number;
@@ -50,9 +60,13 @@ export default function AccountingScreen() {
   const [data, setData] = useState<AccData | null>(null);
   const [loading, setLoading] = useState(true);
   const [amounts, setAmounts] = useState<Record<string, string>>({});
+  const [notes, setNotes] = useState<Record<string, string>>({});
+  const [multiItems, setMultiItems] = useState<Record<string, MultiItem[]>>({});
   const [modalOpen, setModalOpen] = useState(false);
   const [newName, setNewName] = useState("");
   const [newType, setNewType] = useState<"credit" | "debit">("credit");
+  const [newAllowNotes, setNewAllowNotes] = useState(false);
+  const [newMultiple, setNewMultiple] = useState(false);
   const [busy, setBusy] = useState(false);
   // Cash counter modal
   const [cashOpen, setCashOpen] = useState(false);
@@ -63,13 +77,44 @@ export default function AccountingScreen() {
     try {
       const d = await apiStore<AccData>("/api/accounting/today");
       setData(d);
-      // For admin: prefill amounts from saved entries. For employee: blank inputs.
+      // For admin: prefill from saved entries. For employee: blank inputs.
       if (isAdmin) {
-        const map: Record<string, string> = {};
-        d.heads.forEach(h => { map[h.id] = String(d.entries[h.id] ?? 0); });
-        setAmounts(map);
+        const amountMap: Record<string, string> = {};
+        const noteMap: Record<string, string> = {};
+        const multiMap: Record<string, MultiItem[]> = {};
+        d.heads.forEach((h) => {
+          const val = d.entries?.[h.id];
+          if (h.multiple_entries) {
+            if (Array.isArray(val)) {
+              multiMap[h.id] = val.map((it: any) => ({
+                id: String(it.id),
+                label: it.label || "",
+                note: it.note || "",
+                amount: Number(it.amount) || 0,
+              }));
+            } else {
+              multiMap[h.id] = [];
+            }
+          } else if (h.allow_notes) {
+            if (val && typeof val === "object" && !Array.isArray(val)) {
+              amountMap[h.id] = String((val as any).amount ?? 0);
+              noteMap[h.id] = String((val as any).note ?? "");
+            } else if (typeof val === "number") {
+              amountMap[h.id] = String(val);
+            } else {
+              amountMap[h.id] = "0";
+            }
+          } else {
+            amountMap[h.id] = String(typeof val === "number" ? val : (val && typeof val === "object" && !Array.isArray(val) ? (val as any).amount ?? 0 : 0));
+          }
+        });
+        setAmounts(amountMap);
+        setNotes(noteMap);
+        setMultiItems(multiMap);
       } else {
         setAmounts({});
+        setNotes({});
+        setMultiItems({});
       }
     } catch (e: any) { Alert.alert("Error", e.message); }
     finally { setLoading(false); }
@@ -88,14 +133,76 @@ export default function AccountingScreen() {
     } catch (e: any) { Alert.alert("Error", e.message); }
   };
 
+  const saveSingleWithNote = async (headId: string) => {
+    const amt = parseFloat(amounts[headId] || "0") || 0;
+    const note = notes[headId] || "";
+    try {
+      await apiStore("/api/accounting/entry/set", {
+        method: "POST",
+        body: JSON.stringify({ head_id: headId, value: { amount: amt, note } }),
+      });
+      await load();
+    } catch (e: any) { Alert.alert("Error", e.message); }
+  };
+
+  const saveMulti = async (headId: string, items: MultiItem[]) => {
+    try {
+      await apiStore("/api/accounting/entry/set", {
+        method: "POST",
+        body: JSON.stringify({
+          head_id: headId,
+          value: items.map((it) => ({
+            id: it.id,
+            label: it.label || "",
+            note: it.note || "",
+            amount: Number(it.amount) || 0,
+          })),
+        }),
+      });
+      await load();
+    } catch (e: any) { Alert.alert("Error", e.message); }
+  };
+
+  const addMultiItem = (headId: string) => {
+    setMultiItems((prev) => {
+      const cur = prev[headId] || [];
+      const next = [...cur, { id: `tmp-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`, label: "", note: "", amount: 0 }];
+      return { ...prev, [headId]: next };
+    });
+  };
+
+  const updateMultiItem = (headId: string, idx: number, patch: Partial<MultiItem>) => {
+    setMultiItems((prev) => {
+      const cur = [...(prev[headId] || [])];
+      cur[idx] = { ...cur[idx], ...patch } as MultiItem;
+      return { ...prev, [headId]: cur };
+    });
+  };
+
+  const removeMultiItem = (headId: string, idx: number) => {
+    const cur = multiItems[headId] || [];
+    const next = cur.filter((_, i) => i !== idx);
+    setMultiItems((prev) => ({ ...prev, [headId]: next }));
+    // Persist immediately on removal
+    saveMulti(headId, next);
+  };
+
   const addHead = async () => {
     if (!newName.trim()) return;
     setBusy(true);
     try {
       await apiStore("/api/accounting/heads", {
-        method: "POST", body: JSON.stringify({ name: newName.trim(), type: newType }),
+        method: "POST",
+        body: JSON.stringify({
+          name: newName.trim(),
+          type: newType,
+          allow_notes: newAllowNotes,
+          multiple_entries: newMultiple,
+        }),
       });
       setNewName("");
+      setNewAllowNotes(false);
+      setNewMultiple(false);
       setModalOpen(false);
       await load();
     } catch (e: any) { Alert.alert("Error", e.message); }
@@ -170,46 +277,171 @@ export default function AccountingScreen() {
   const credits = data.heads.filter(h => h.type === "credit");
   const debits = data.heads.filter(h => h.type === "debit");
 
+  const headTotal = (h: Head): number => {
+    const val = data!.entries?.[h.id];
+    if (h.multiple_entries) {
+      if (Array.isArray(val)) return val.reduce((s: number, it: any) => s + (Number(it?.amount) || 0), 0);
+      // For employee (no entries), use local state
+      const local = multiItems[h.id] || [];
+      return local.reduce((s, it) => s + (Number(it.amount) || 0), 0);
+    }
+    if (val && typeof val === "object" && !Array.isArray(val)) return Number((val as any).amount) || 0;
+    if (typeof val === "number") return val;
+    return 0;
+  };
+
   const renderHead = (h: Head) => {
     const isCashHead = !!h.is_cash;
+    const isMulti = !!h.multiple_entries && !isCashHead;
+    const hasNotes = !!h.allow_notes && !isCashHead;
+    const items = multiItems[h.id] || [];
+    const subtotal = headTotal(h);
+
     return (
-      <View key={h.id} style={styles.headRow}>
-        <View style={{ flex: 1, flexDirection: "row", alignItems: "center", gap: 6 }}>
-          {isCashHead && <Ionicons name="cash" size={16} color={colors.credit} />}
-          <Text style={styles.headName}>{h.name}</Text>
-        </View>
-        {isCashHead ? (
-          <TouchableOpacity
-            testID={`cash-btn-${h.id}`}
-            style={styles.cashBtn}
-            onPress={() => openCashCounter(h.id)}
-            disabled={data.submitted}
-          >
-            <Ionicons name="calculator" size={16} color="#fff" />
-            <Text style={styles.cashBtnText}>
-              {isAdmin && data.entries[h.id] ? `${CURRENCY}${Number(data.entries[h.id]).toFixed(2)}` : "Count Cash"}
-            </Text>
-          </TouchableOpacity>
-        ) : (
-          <View style={styles.amountWrap}>
-            <Text style={styles.currency}>{CURRENCY}</Text>
-            <TextInput
-              testID={`amount-${h.id}`}
-              style={styles.amountInput}
-              keyboardType="decimal-pad"
-              placeholder="0"
-              placeholderTextColor={colors.textLight}
-              value={amounts[h.id] ?? ""}
-              onChangeText={(v) => setAmounts(prev => ({ ...prev, [h.id]: v }))}
-              onBlur={() => saveAmount(h.id, amounts[h.id] ?? "0")}
-              editable={!data.submitted}
-            />
+      <View key={h.id} style={styles.headBlock}>
+        <View style={styles.headRow}>
+          <View style={{ flex: 1, flexDirection: "row", alignItems: "center", gap: 6 }}>
+            {isCashHead && <Ionicons name="cash" size={16} color={colors.credit} />}
+            <Text style={styles.headName}>{h.name}</Text>
+            {isMulti && (
+              <View style={styles.miniBadge}>
+                <Text style={styles.miniBadgeText}>Multi</Text>
+              </View>
+            )}
+            {hasNotes && !isMulti && (
+              <View style={[styles.miniBadge, { backgroundColor: "#EEF2FF" }]}>
+                <Text style={[styles.miniBadgeText, { color: colors.primary }]}>Notes</Text>
+              </View>
+            )}
           </View>
+
+          {/* Right-side compact display */}
+          {isCashHead ? (
+            <TouchableOpacity
+              testID={`cash-btn-${h.id}`}
+              style={styles.cashBtn}
+              onPress={() => openCashCounter(h.id)}
+              disabled={data!.submitted}
+            >
+              <Ionicons name="calculator" size={16} color="#fff" />
+              <Text style={styles.cashBtnText}>
+                {isAdmin && subtotal ? `${CURRENCY}${subtotal.toFixed(2)}` : "Count Cash"}
+              </Text>
+            </TouchableOpacity>
+          ) : isMulti ? (
+            <Text style={styles.multiTotal}>
+              {CURRENCY}{subtotal.toFixed(2)}
+            </Text>
+          ) : (
+            <View style={styles.amountWrap}>
+              <Text style={styles.currency}>{CURRENCY}</Text>
+              <TextInput
+                testID={`amount-${h.id}`}
+                style={styles.amountInput}
+                keyboardType="decimal-pad"
+                placeholder="0"
+                placeholderTextColor={colors.textLight}
+                value={amounts[h.id] ?? ""}
+                onChangeText={(v) => setAmounts((prev) => ({ ...prev, [h.id]: v }))}
+                onBlur={() => (hasNotes ? saveSingleWithNote(h.id) : saveAmount(h.id, amounts[h.id] ?? "0"))}
+                editable={!data!.submitted}
+              />
+            </View>
+          )}
+
+          {isAdmin && !data!.submitted && !isCashHead && (
+            <TouchableOpacity testID={`remove-head-${h.id}`} onPress={() => removeHead(h)} hitSlop={10}>
+              <Ionicons name="trash-outline" size={18} color={colors.danger} />
+            </TouchableOpacity>
+          )}
+        </View>
+
+        {/* Notes input for single+note heads */}
+        {hasNotes && !isMulti && (
+          <TextInput
+            testID={`note-${h.id}`}
+            style={styles.noteInput}
+            placeholder="Add a note (optional)"
+            placeholderTextColor={colors.textLight}
+            value={notes[h.id] ?? ""}
+            onChangeText={(v) => setNotes((p) => ({ ...p, [h.id]: v }))}
+            onBlur={() => saveSingleWithNote(h.id)}
+            editable={!data!.submitted}
+            multiline
+          />
         )}
-        {isAdmin && !data.submitted && !isCashHead && (
-          <TouchableOpacity testID={`remove-head-${h.id}`} onPress={() => removeHead(h)} hitSlop={10}>
-            <Ionicons name="trash-outline" size={18} color={colors.danger} />
-          </TouchableOpacity>
+
+        {/* Multi-entry rows */}
+        {isMulti && (
+          <View style={styles.multiBox}>
+            {items.length === 0 ? (
+              <Text style={styles.multiEmpty}>No entries yet</Text>
+            ) : (
+              items.map((it, idx) => (
+                <View key={it.id} style={styles.multiRow}>
+                  <View style={styles.multiCol}>
+                    <TextInput
+                      testID={`multi-label-${h.id}-${idx}`}
+                      style={styles.multiLabel}
+                      placeholder="Label (optional)"
+                      placeholderTextColor={colors.textLight}
+                      value={it.label || ""}
+                      onChangeText={(v) => updateMultiItem(h.id, idx, { label: v })}
+                      onBlur={() => saveMulti(h.id, multiItems[h.id] || [])}
+                      editable={!data!.submitted}
+                    />
+                    <TextInput
+                      testID={`multi-note-${h.id}-${idx}`}
+                      style={styles.multiNote}
+                      placeholder="Note (optional)"
+                      placeholderTextColor={colors.textLight}
+                      value={it.note || ""}
+                      onChangeText={(v) => updateMultiItem(h.id, idx, { note: v })}
+                      onBlur={() => saveMulti(h.id, multiItems[h.id] || [])}
+                      editable={!data!.submitted}
+                      multiline
+                    />
+                  </View>
+                  <View style={styles.multiAmountWrap}>
+                    <Text style={styles.currency}>{CURRENCY}</Text>
+                    <TextInput
+                      testID={`multi-amount-${h.id}-${idx}`}
+                      style={styles.multiAmountInput}
+                      keyboardType="decimal-pad"
+                      placeholder="0"
+                      placeholderTextColor={colors.textLight}
+                      value={it.amount ? String(it.amount) : ""}
+                      onChangeText={(v) =>
+                        updateMultiItem(h.id, idx, { amount: parseFloat(v.replace(/[^0-9.]/g, "")) || 0 })
+                      }
+                      onBlur={() => saveMulti(h.id, multiItems[h.id] || [])}
+                      editable={!data!.submitted}
+                    />
+                  </View>
+                  {!data!.submitted && (
+                    <TouchableOpacity
+                      testID={`multi-remove-${h.id}-${idx}`}
+                      onPress={() => removeMultiItem(h.id, idx)}
+                      hitSlop={10}
+                      style={{ paddingHorizontal: 4 }}
+                    >
+                      <Ionicons name="close-circle" size={22} color={colors.danger} />
+                    </TouchableOpacity>
+                  )}
+                </View>
+              ))
+            )}
+            {!data!.submitted && (
+              <TouchableOpacity
+                testID={`multi-add-${h.id}`}
+                style={styles.multiAddBtn}
+                onPress={() => addMultiItem(h.id)}
+              >
+                <Ionicons name="add-circle" size={18} color={colors.primary} />
+                <Text style={styles.multiAddText}>Add entry</Text>
+              </TouchableOpacity>
+            )}
+          </View>
         )}
       </View>
     );
@@ -220,15 +452,14 @@ export default function AccountingScreen() {
       <View style={styles.header}>
         <TouchableOpacity testID="back-btn" onPress={() => router.back()} style={styles.backBtn}>
           <Ionicons name="chevron-back" size={26} color="#fff" />
+          <Text style={styles.btnLabel}>Back</Text>
         </TouchableOpacity>
         <Text style={styles.headerTitle}>Accounting</Text>
         <View style={{ flexDirection: "row" }}>
-          <TouchableOpacity testID="pdf-btn" onPress={downloadPdf} style={styles.backBtn}>
-            <Ionicons name="download-outline" size={22} color="#fff" />
-          </TouchableOpacity>
           {isAdmin && (
-            <TouchableOpacity testID="add-head-btn" onPress={() => setModalOpen(true)} style={styles.backBtn}>
-              <Ionicons name="add" size={26} color="#fff" />
+            <TouchableOpacity testID="add-head-btn" onPress={() => setModalOpen(true)} style={styles.headerAction}>
+              <Ionicons name="add" size={20} color="#fff" />
+              <Text style={styles.btnLabel}>Add Head</Text>
             </TouchableOpacity>
           )}
         </View>
@@ -278,6 +509,11 @@ export default function AccountingScreen() {
               <Text style={styles.submitText}>Submit Today's Accounting</Text>
             </TouchableOpacity>
           )}
+
+          <TouchableOpacity testID="pdf-btn" style={styles.pdfBtn} onPress={downloadPdf}>
+            <Ionicons name="download-outline" size={20} color={colors.primary} />
+            <Text style={styles.pdfText}>Download PDF Report</Text>
+          </TouchableOpacity>
           {data.submitted && (
             <View style={styles.submittedBanner}>
               <Ionicons name="checkmark-circle" size={20} color={colors.success} />
@@ -301,6 +537,41 @@ export default function AccountingScreen() {
                 <Text style={[styles.typeText, newType === "debit" && { color: "#fff" }]}>Debit</Text>
               </TouchableOpacity>
             </View>
+
+            <View style={styles.optionRow}>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.optionTitle}>Notes box</Text>
+                <Text style={styles.optionSub}>Allow employees to add a note for this entry</Text>
+              </View>
+              <Switch
+                testID="opt-allow-notes"
+                value={newAllowNotes}
+                onValueChange={(v) => {
+                  setNewAllowNotes(v);
+                  // Single+notes and multi-entry shouldn't both be on
+                  if (v && newMultiple) setNewMultiple(false);
+                }}
+                trackColor={{ false: colors.border, true: colors.primary }}
+                thumbColor="#fff"
+              />
+            </View>
+            <View style={styles.optionRow}>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.optionTitle}>Multiple entries</Text>
+                <Text style={styles.optionSub}>This head can have several line items per day (label, amount, note)</Text>
+              </View>
+              <Switch
+                testID="opt-multi"
+                value={newMultiple}
+                onValueChange={(v) => {
+                  setNewMultiple(v);
+                  if (v && newAllowNotes) setNewAllowNotes(false);
+                }}
+                trackColor={{ false: colors.border, true: colors.primary }}
+                thumbColor="#fff"
+              />
+            </View>
+
             <View style={styles.modalActions}>
               <TouchableOpacity style={[styles.modalBtn, { backgroundColor: colors.surface }]} onPress={() => setModalOpen(false)}>
                 <Text style={{ color: colors.text, fontWeight: "600" }}>Cancel</Text>
@@ -371,7 +642,11 @@ const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: colors.bg },
   loader: { flex: 1, alignItems: "center", justifyContent: "center", backgroundColor: colors.bg },
   header: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", backgroundColor: colors.primary, paddingHorizontal: spacing.md, paddingVertical: spacing.md },
-  backBtn: { width: 40, height: 40, borderRadius: 20, alignItems: "center", justifyContent: "center", backgroundColor: "rgba(255,255,255,0.18)", marginLeft: 4 },
+  backBtn: { flexDirection: "row", alignItems: "center", gap: 2, paddingHorizontal: 10, paddingVertical: 6, borderRadius: 20, backgroundColor: "rgba(255,255,255,0.18)" },
+  headerAction: { flexDirection: "row", alignItems: "center", gap: 4, paddingHorizontal: 12, paddingVertical: 6, borderRadius: 20, backgroundColor: "rgba(255,255,255,0.25)" },
+  btnLabel: { color: "#fff", fontSize: 13, fontWeight: "700" },
+  pdfBtn: { flexDirection: "row", justifyContent: "center", alignItems: "center", gap: 8, backgroundColor: "#EFF6FF", borderWidth: 1.5, borderColor: colors.primary, padding: 14, borderRadius: radius.md, marginTop: spacing.md },
+  pdfText: { color: colors.primary, fontWeight: "700", fontSize: 15 },
   headerTitle: { color: "#fff", fontSize: 18, fontWeight: "700" },
   content: { padding: spacing.lg, paddingBottom: 40 },
   summaryCard: { backgroundColor: colors.card, padding: spacing.md, borderRadius: radius.lg, borderWidth: 1, borderColor: colors.border, marginBottom: spacing.lg },
@@ -411,4 +686,107 @@ const styles = StyleSheet.create({
   cashTotalBox: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", padding: spacing.md, backgroundColor: "#DCFCE7", borderRadius: radius.md, marginTop: spacing.md },
   cashTotalLabel: { fontSize: 16, fontWeight: "700", color: colors.text },
   cashTotalVal: { fontSize: 22, fontWeight: "700", color: colors.credit },
+  // New styles for notes & multi-entry heads
+  headBlock: { marginBottom: spacing.sm },
+  miniBadge: { paddingHorizontal: 6, paddingVertical: 2, backgroundColor: "#F1F5F9", borderRadius: 4 },
+  miniBadgeText: { fontSize: 10, fontWeight: "700", color: colors.textMuted, letterSpacing: 0.4 },
+  multiTotal: { fontSize: 15, fontWeight: "700", color: colors.text, minWidth: 70, textAlign: "right" },
+  noteInput: {
+    backgroundColor: colors.card,
+    borderRadius: radius.sm,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    fontSize: 13,
+    color: colors.text,
+    marginTop: -4,
+    marginBottom: spacing.sm,
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderTopWidth: 0,
+    borderTopLeftRadius: 0,
+    borderTopRightRadius: 0,
+    minHeight: 38,
+  },
+  multiBox: {
+    backgroundColor: colors.card,
+    paddingHorizontal: spacing.sm,
+    paddingVertical: spacing.sm,
+    borderRadius: radius.sm,
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderTopWidth: 0,
+    borderTopLeftRadius: 0,
+    borderTopRightRadius: 0,
+    marginTop: -4,
+    marginBottom: spacing.sm,
+    gap: spacing.sm,
+  },
+  multiEmpty: { fontSize: 12, color: colors.textMuted, fontStyle: "italic", paddingVertical: 4 },
+  multiRow: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    gap: spacing.sm,
+    paddingVertical: 6,
+    borderBottomWidth: 1,
+    borderBottomColor: colors.border,
+    paddingBottom: spacing.sm,
+  },
+  multiCol: { flex: 1, minWidth: 0 },
+  multiLabel: {
+    backgroundColor: colors.surface,
+    borderRadius: radius.sm,
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+    fontSize: 13,
+    color: colors.text,
+    fontWeight: "600",
+    marginBottom: 4,
+    width: "100%",
+  },
+  multiNote: {
+    backgroundColor: colors.surface,
+    borderRadius: radius.sm,
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+    fontSize: 12,
+    color: colors.textMuted,
+    minHeight: 32,
+    width: "100%",
+  },
+  multiAmountWrap: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: colors.surface,
+    borderRadius: radius.sm,
+    paddingHorizontal: 6,
+    minWidth: 90,
+    maxWidth: 110,
+  },
+  multiAmountInput: {
+    minWidth: 50,
+    width: 70,
+    paddingVertical: 8,
+    fontSize: 14,
+    color: colors.text,
+    textAlign: "right",
+    fontWeight: "600",
+  },
+  multiAddBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    paddingVertical: 8,
+    paddingHorizontal: 4,
+  },
+  multiAddText: { color: colors.primary, fontWeight: "700", fontSize: 13 },
+  optionRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingVertical: 10,
+    borderTopWidth: 1,
+    borderTopColor: colors.border,
+    gap: spacing.sm,
+  },
+  optionTitle: { fontSize: 14, fontWeight: "600", color: colors.text },
+  optionSub: { fontSize: 12, color: colors.textMuted, marginTop: 2 },
 });

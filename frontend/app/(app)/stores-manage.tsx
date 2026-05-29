@@ -58,10 +58,12 @@ export default function StoresManageScreen() {
       <View style={styles.header}>
         <TouchableOpacity testID="back-btn" onPress={() => router.back()} style={styles.iconBtn}>
           <Ionicons name="chevron-back" size={26} color="#fff" />
+          <Text style={styles.btnLabel}>Back</Text>
         </TouchableOpacity>
         <Text style={styles.headerTitle}>Manage Stores</Text>
-        <TouchableOpacity testID="add-store-btn" onPress={() => setModalOpen(true)} style={styles.iconBtn}>
-          <Ionicons name="add" size={26} color="#fff" />
+        <TouchableOpacity testID="add-store-btn" onPress={() => setModalOpen(true)} style={styles.headerAction}>
+          <Ionicons name="add" size={20} color="#fff" />
+          <Text style={styles.btnLabel}>Add</Text>
         </TouchableOpacity>
       </View>
 
@@ -118,7 +120,9 @@ const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: colors.bg },
   loader: { flex: 1, alignItems: "center", justifyContent: "center", backgroundColor: colors.bg },
   header: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", backgroundColor: colors.primary, paddingHorizontal: spacing.md, paddingVertical: spacing.md },
-  iconBtn: { width: 40, height: 40, alignItems: "center", justifyContent: "center", borderRadius: 20, backgroundColor: "rgba(255,255,255,0.18)" },
+  iconBtn: { flexDirection: "row", alignItems: "center", gap: 2, paddingHorizontal: 10, paddingVertical: 6, borderRadius: 20, backgroundColor: "rgba(255,255,255,0.18)" },
+  headerAction: { flexDirection: "row", alignItems: "center", gap: 4, paddingHorizontal: 12, paddingVertical: 6, borderRadius: 20, backgroundColor: "rgba(255,255,255,0.25)" },
+  btnLabel: { color: "#fff", fontSize: 13, fontWeight: "700" },
   headerTitle: { color: "#fff", fontSize: 18, fontWeight: "700" },
   content: { padding: spacing.lg, gap: spacing.sm },
   empty: { alignItems: "center", padding: spacing.xl, gap: spacing.sm },
