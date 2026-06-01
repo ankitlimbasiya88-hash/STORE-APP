@@ -30,6 +30,36 @@ Multi-store grocery operations app (React Native Expo + FastAPI + MongoDB). Role
 - Replaced 35+ `<Ionicons />` usages across 10 screens with `<AppIcon />`, prioritizing navigation (back, forward), action buttons (add, close, trash, download, calendar), and indicators (check, sun, moon).
 - Decorative-only Ionicons (storefront, business, cube, calculator etc.) kept as-is since they sit next to text labels.
 
+## Phase 3 — Inventory module (iter 3.0)
+Cash Accounting label finalised. New "Inventory & Orders" module with **4-tab structure**:
+1. **Products** — admin can CRUD; employees read-only
+2. **Inventory** — view stock per product (placeholder for next milestone)
+3. **Shopping List** — admin manages, employees can check (next milestone)
+4. **Shopping** — admin records purchases that auto-update stock + price history (admin-only, next milestone)
+
+### Milestone A delivered
+- Products list with search (name / company / keywords / size / pack size / price) + barcode-scan button using `expo-camera`. Scanner returns to Inventory; if barcode matches → opens product, else "Product not in system" with Add prompt.
+- Suppliers admin screen (add/edit/delete + supplier removed from products on delete)
+- Categories + Purchase Types admin screen (combined "Lists")
+- Full Product create/edit form with: 2-3 pictures + barcode photo (base64 in Mongo), Name, Size, Company, Pack size, Category (single-select), Ideal margin %, Selling price, Tax %, multi-select preferred Suppliers, Purchase Price History (sorted low→high, with lowest/highest/latest stats, add/remove entries), Average Sales (qty + days → server-computed per-day), Expiry sensitivity days, Min/Max inventory days, multi-select Purchase Types, Keywords.
+- Camera + photo permissions declared in `app.json` (iOS infoPlist + Android permissions).
+
+### Backend
+- 14 new endpoints under `/api/inventory/*` (suppliers, categories, purchase-types, products, products/{id}/purchase-price)
+- Cascading delete: removing a supplier/category/purchase-type pulls/unsets the reference from products
+- Products list endpoint strips base64 blobs (returns `thumbnail` + `images_count`) for fast lists; GET-by-id returns full payload
+- Per-day sales computed server-side from `{quantity, period_days}`
+- Barcode uniqueness enforced per-store (409 on conflict)
+
+### Notes flagged by testing agent (deferred)
+- `delete_store` doesn't cascade to inventory collections — orphans possible. Address in Phase 4 cleanup.
+- `server.py` now 1268 lines — split into per-feature routers in Phase 4.
+
+### Coming next (Milestone B+)
+- Inventory stock tracking screen
+- Shopping List screen (with auto-suggestions based on min_inventory_days vs per-day sales)
+- Shopping screen (admin records actual purchases — auto-updates stock + adds to purchase_prices history)
+
 ## Architecture
 - **Frontend**: Expo SDK 54, expo-router, TypeScript
 - **Backend**: FastAPI + Motor (MongoDB)
