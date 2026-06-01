@@ -11,7 +11,7 @@ const FUNCTIONS: Array<{
   appIcon?: AppIconName; color: string; bg: string; route: any;
 }> = [
   { key: "opening", title: "Opening Checklist", desc: "Start-of-day tasks", icon: "sunny", appIcon: "sun", color: "#F59E0B", bg: "#FEF3C7", route: "/(app)/operations/opening" as const },
-  { key: "accounting", title: "Accounting", desc: "Daily credit & debit", icon: "calculator", appIcon: "cash", color: colors.primary, bg: "#DBEAFE", route: "/(app)/operations/accounting" as const },
+  { key: "accounting", title: "Cash Accounting", desc: "Daily credit & debit", icon: "calculator", appIcon: "cash", color: colors.primary, bg: "#DBEAFE", route: "/(app)/operations/accounting" as const },
   { key: "closing", title: "Closing Checklist", desc: "End-of-day tasks", icon: "moon", appIcon: "moon", color: "#7C3AED", bg: "#EDE9FE", route: "/(app)/operations/closing" as const },
   { key: "chat", title: "Chat", desc: "Team conversations", icon: "chatbubbles", color: colors.success, bg: "#DCFCE7", route: "/(app)/operations/chat" as const },
   { key: "reports", title: "Reports", desc: "Historical reports & PDFs", icon: "document-text", appIcon: "download", color: "#0EA5E9", bg: "#E0F2FE", route: "/(app)/operations/reports" as const },

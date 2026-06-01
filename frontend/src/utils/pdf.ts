@@ -160,7 +160,7 @@ export const buildAccountingHtml = (d: AccountingReportData): string => {
 
   return `<!DOCTYPE html><html><head><meta charset="utf-8" />${baseStyles}</head>
   <body>
-    <h1>Accounting Report</h1>
+    <h1>Cash Accounting Report</h1>
     <div class="sub">${escape(d.storeName)} • ${formatDate(d.date)}</div>
 
     <h3 style="color:#16A34A;margin-top:18px;">Credits</h3>

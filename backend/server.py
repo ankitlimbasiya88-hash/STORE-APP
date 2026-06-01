@@ -1,9 +1,10 @@
-from fastapi import FastAPI, APIRouter, Depends, HTTPException, status, WebSocket, WebSocketDisconnect, Query
+from fastapi import FastAPI, APIRouter, Depends, HTTPException, status, WebSocket, WebSocketDisconnect, Query, Response
 from fastapi.security import OAuth2PasswordBearer
 from dotenv import load_dotenv
 from starlette.middleware.cors import CORSMiddleware
 from motor.motor_asyncio import AsyncIOMotorClient
 import os
+import re
 import logging
 import json
 import uuid
@@ -684,6 +685,442 @@ async def submit_accounting(store_id: str = Query(...), user=Depends(get_current
         }},
     )
     return {"ok": True}
+
+
+# ============ Inventory (Phase 3) ============
+
+# ---------- Models ----------
+
+class SupplierCreate(BaseModel):
+    name: str = Field(min_length=1, max_length=200)
+    contact: str = ""
+    notes: str = ""
+
+
+class SupplierUpdate(BaseModel):
+    name: Optional[str] = None
+    contact: Optional[str] = None
+    notes: Optional[str] = None
+
+
+class Supplier(BaseModel):
+    id: str
+    store_id: str
+    name: str
+    contact: str = ""
+    notes: str = ""
+    created_at: str
+
+
+class TaxonomyCreate(BaseModel):
+    name: str = Field(min_length=1, max_length=100)
+
+
+class TaxonomyUpdate(BaseModel):
+    name: str = Field(min_length=1, max_length=100)
+
+
+class Taxonomy(BaseModel):
+    id: str
+    store_id: str
+    kind: Literal["category", "purchase_type"]
+    name: str
+    created_at: str
+
+
+class PurchasePriceEntry(BaseModel):
+    id: str
+    date: str
+    price: float
+    supplier_id: Optional[str] = None
+    source: str = "manual"   # manual | shopping | adjustment
+    note: str = ""
+
+
+class PurchasePriceCreate(BaseModel):
+    price: float = Field(ge=0)
+    date: Optional[str] = None      # ISO date; defaults to today
+    supplier_id: Optional[str] = None
+    source: str = "manual"
+    note: str = ""
+
+
+class AvgSales(BaseModel):
+    quantity: float = 0
+    period_days: int = 0
+    per_day: float = 0
+
+
+class ProductCreate(BaseModel):
+    name: str = Field(min_length=1, max_length=200)
+    barcode: Optional[str] = None
+    size: str = ""
+    company: str = ""
+    pack_size: str = ""
+    category_id: Optional[str] = None
+    ideal_profit_margin: float = 0       # %
+    selling_price: float = 0
+    tax_pct: float = 0
+    preferred_supplier_ids: List[str] = []
+    images: List[str] = []                # base64 strings
+    barcode_image: Optional[str] = None   # base64
+    avg_sales: AvgSales = Field(default_factory=AvgSales)
+    expiry_sensitivity_days: int = 0
+    min_inventory_days: int = 0
+    max_inventory_days: int = 0
+    purchase_type_ids: List[str] = []
+    keywords: List[str] = []
+
+
+class ProductUpdate(BaseModel):
+    name: Optional[str] = None
+    barcode: Optional[str] = None
+    size: Optional[str] = None
+    company: Optional[str] = None
+    pack_size: Optional[str] = None
+    category_id: Optional[str] = None
+    ideal_profit_margin: Optional[float] = None
+    selling_price: Optional[float] = None
+    tax_pct: Optional[float] = None
+    preferred_supplier_ids: Optional[List[str]] = None
+    images: Optional[List[str]] = None
+    barcode_image: Optional[str] = None
+    avg_sales: Optional[AvgSales] = None
+    expiry_sensitivity_days: Optional[int] = None
+    min_inventory_days: Optional[int] = None
+    max_inventory_days: Optional[int] = None
+    purchase_type_ids: Optional[List[str]] = None
+    keywords: Optional[List[str]] = None
+
+
+class Product(BaseModel):
+    id: str
+    store_id: str
+    name: str
+    barcode: Optional[str] = None
+    size: str = ""
+    company: str = ""
+    pack_size: str = ""
+    category_id: Optional[str] = None
+    ideal_profit_margin: float = 0
+    selling_price: float = 0
+    tax_pct: float = 0
+    preferred_supplier_ids: List[str] = []
+    images: List[str] = []
+    barcode_image: Optional[str] = None
+    purchase_prices: List[PurchasePriceEntry] = []
+    avg_sales: AvgSales = Field(default_factory=AvgSales)
+    expiry_sensitivity_days: int = 0
+    min_inventory_days: int = 0
+    max_inventory_days: int = 0
+    purchase_type_ids: List[str] = []
+    keywords: List[str] = []
+    created_at: str
+    updated_at: str
+
+
+# ---------- Suppliers ----------
+
+@api_router.get("/inventory/suppliers", response_model=List[Supplier])
+async def list_suppliers(store_id: str = Query(...), user=Depends(get_current_user)):
+    await require_store_access(user, store_id)
+    out = []
+    async for s in db.suppliers.find({"store_id": store_id}, {"_id": 0}).sort("name", 1):
+        out.append(s)
+    return out
+
+
+@api_router.post("/inventory/suppliers", response_model=Supplier, status_code=201)
+async def create_supplier(payload: SupplierCreate, store_id: str = Query(...), user=Depends(require_admin)):
+    await require_store_access(user, store_id)
+    doc = {
+        "id": str(uuid.uuid4()), "store_id": store_id,
+        "name": payload.name.strip(), "contact": payload.contact, "notes": payload.notes,
+        "created_at": datetime.now(timezone.utc).isoformat(),
+    }
+    await db.suppliers.insert_one(dict(doc))
+    return Supplier(**doc)
+
+
+@api_router.patch("/inventory/suppliers/{sid}", response_model=Supplier)
+async def update_supplier(sid: str, payload: SupplierUpdate, store_id: str = Query(...), user=Depends(require_admin)):
+    await require_store_access(user, store_id)
+    upd = {k: v for k, v in payload.model_dump(exclude_unset=True).items() if v is not None}
+    if not upd:
+        raise HTTPException(status_code=400, detail="Nothing to update")
+    res = await db.suppliers.update_one({"id": sid, "store_id": store_id}, {"$set": upd})
+    if res.matched_count == 0:
+        raise HTTPException(status_code=404, detail="Supplier not found")
+    doc = await db.suppliers.find_one({"id": sid}, {"_id": 0})
+    return Supplier(**doc)
+
+
+@api_router.delete("/inventory/suppliers/{sid}", status_code=204)
+async def delete_supplier(sid: str, store_id: str = Query(...), user=Depends(require_admin)):
+    await require_store_access(user, store_id)
+    await db.suppliers.delete_one({"id": sid, "store_id": store_id})
+    # Remove the supplier id from products' preferred lists
+    await db.products.update_many(
+        {"store_id": store_id, "preferred_supplier_ids": sid},
+        {"$pull": {"preferred_supplier_ids": sid}},
+    )
+    return Response(status_code=204)
+
+
+# ---------- Taxonomies (category + purchase-type) ----------
+
+async def _list_taxonomy(store_id: str, kind: str) -> List[dict]:
+    out: List[dict] = []
+    async for t in db.taxonomies.find({"store_id": store_id, "kind": kind}, {"_id": 0}).sort("name", 1):
+        out.append(t)
+    return out
+
+
+@api_router.get("/inventory/categories", response_model=List[Taxonomy])
+async def list_categories(store_id: str = Query(...), user=Depends(get_current_user)):
+    await require_store_access(user, store_id)
+    return await _list_taxonomy(store_id, "category")
+
+
+@api_router.get("/inventory/purchase-types", response_model=List[Taxonomy])
+async def list_purchase_types(store_id: str = Query(...), user=Depends(get_current_user)):
+    await require_store_access(user, store_id)
+    return await _list_taxonomy(store_id, "purchase_type")
+
+
+async def _create_taxonomy(store_id: str, kind: str, name: str) -> dict:
+    doc = {
+        "id": str(uuid.uuid4()), "store_id": store_id, "kind": kind,
+        "name": name.strip(),
+        "created_at": datetime.now(timezone.utc).isoformat(),
+    }
+    await db.taxonomies.insert_one(dict(doc))
+    return doc
+
+
+@api_router.post("/inventory/categories", response_model=Taxonomy, status_code=201)
+async def create_category(payload: TaxonomyCreate, store_id: str = Query(...), user=Depends(require_admin)):
+    await require_store_access(user, store_id)
+    return await _create_taxonomy(store_id, "category", payload.name)
+
+
+@api_router.post("/inventory/purchase-types", response_model=Taxonomy, status_code=201)
+async def create_purchase_type(payload: TaxonomyCreate, store_id: str = Query(...), user=Depends(require_admin)):
+    await require_store_access(user, store_id)
+    return await _create_taxonomy(store_id, "purchase_type", payload.name)
+
+
+@api_router.patch("/inventory/categories/{tid}", response_model=Taxonomy)
+async def update_category(tid: str, payload: TaxonomyUpdate, store_id: str = Query(...), user=Depends(require_admin)):
+    await require_store_access(user, store_id)
+    res = await db.taxonomies.update_one(
+        {"id": tid, "store_id": store_id, "kind": "category"},
+        {"$set": {"name": payload.name.strip()}},
+    )
+    if res.matched_count == 0:
+        raise HTTPException(status_code=404, detail="Category not found")
+    doc = await db.taxonomies.find_one({"id": tid}, {"_id": 0})
+    return Taxonomy(**doc)
+
+
+@api_router.patch("/inventory/purchase-types/{tid}", response_model=Taxonomy)
+async def update_purchase_type(tid: str, payload: TaxonomyUpdate, store_id: str = Query(...), user=Depends(require_admin)):
+    await require_store_access(user, store_id)
+    res = await db.taxonomies.update_one(
+        {"id": tid, "store_id": store_id, "kind": "purchase_type"},
+        {"$set": {"name": payload.name.strip()}},
+    )
+    if res.matched_count == 0:
+        raise HTTPException(status_code=404, detail="Purchase type not found")
+    doc = await db.taxonomies.find_one({"id": tid}, {"_id": 0})
+    return Taxonomy(**doc)
+
+
+@api_router.delete("/inventory/categories/{tid}", status_code=204)
+async def delete_category(tid: str, store_id: str = Query(...), user=Depends(require_admin)):
+    await require_store_access(user, store_id)
+    await db.taxonomies.delete_one({"id": tid, "store_id": store_id, "kind": "category"})
+    await db.products.update_many({"store_id": store_id, "category_id": tid}, {"$set": {"category_id": None}})
+    return Response(status_code=204)
+
+
+@api_router.delete("/inventory/purchase-types/{tid}", status_code=204)
+async def delete_purchase_type(tid: str, store_id: str = Query(...), user=Depends(require_admin)):
+    await require_store_access(user, store_id)
+    await db.taxonomies.delete_one({"id": tid, "store_id": store_id, "kind": "purchase_type"})
+    await db.products.update_many({"store_id": store_id, "purchase_type_ids": tid}, {"$pull": {"purchase_type_ids": tid}})
+    return Response(status_code=204)
+
+
+# ---------- Products ----------
+
+def _product_search_filter(store_id: str, q: Optional[str], barcode: Optional[str]) -> dict:
+    f: dict = {"store_id": store_id}
+    if barcode:
+        f["barcode"] = barcode.strip()
+        return f
+    if q:
+        s = q.strip()
+        if not s:
+            return f
+        regex = {"$regex": re.escape(s), "$options": "i"}
+        # numeric (selling price) matching
+        try:
+            num = float(s)
+            f["$or"] = [
+                {"name": regex}, {"company": regex},
+                {"keywords": regex}, {"size": regex}, {"pack_size": regex},
+                {"selling_price": num},
+            ]
+        except Exception:
+            f["$or"] = [
+                {"name": regex}, {"company": regex},
+                {"keywords": regex}, {"size": regex}, {"pack_size": regex},
+            ]
+    return f
+
+
+def _strip_images_for_list(p: dict) -> dict:
+    """Return product without large image blobs (for list views)."""
+    out = dict(p)
+    imgs = out.get("images") or []
+    out["images_count"] = len(imgs)
+    out["thumbnail"] = imgs[0] if imgs else None
+    out["images"] = []
+    out["barcode_image"] = None
+    return out
+
+
+@api_router.get("/inventory/products")
+async def list_products(
+    store_id: str = Query(...),
+    q: Optional[str] = None,
+    barcode: Optional[str] = None,
+    limit: int = 100,
+    user=Depends(get_current_user),
+):
+    await require_store_access(user, store_id)
+    flt = _product_search_filter(store_id, q, barcode)
+    out: List[dict] = []
+    async for p in db.products.find(flt, {"_id": 0}).sort("name", 1).limit(limit):
+        out.append(_strip_images_for_list(p))
+    return out
+
+
+@api_router.get("/inventory/products/{pid}", response_model=Product)
+async def get_product(pid: str, store_id: str = Query(...), user=Depends(get_current_user)):
+    await require_store_access(user, store_id)
+    p = await db.products.find_one({"id": pid, "store_id": store_id}, {"_id": 0})
+    if not p:
+        raise HTTPException(status_code=404, detail="Product not found")
+    # Ensure all required default fields
+    p.setdefault("purchase_prices", [])
+    p.setdefault("avg_sales", {"quantity": 0, "period_days": 0, "per_day": 0})
+    return Product(**p)
+
+
+def _compute_avg_sales(avg: dict | AvgSales | None) -> dict:
+    if not avg:
+        return {"quantity": 0, "period_days": 0, "per_day": 0}
+    if isinstance(avg, AvgSales):
+        avg = avg.model_dump()
+    qty = float(avg.get("quantity") or 0)
+    days = int(avg.get("period_days") or 0)
+    per_day = qty / days if days > 0 else 0.0
+    return {"quantity": qty, "period_days": days, "per_day": round(per_day, 4)}
+
+
+@api_router.post("/inventory/products", response_model=Product, status_code=201)
+async def create_product(payload: ProductCreate, store_id: str = Query(...), user=Depends(require_admin)):
+    await require_store_access(user, store_id)
+    # Unique barcode per store if provided
+    if payload.barcode:
+        dup = await db.products.find_one({"store_id": store_id, "barcode": payload.barcode.strip()})
+        if dup:
+            raise HTTPException(status_code=409, detail="A product with this barcode already exists")
+    now = datetime.now(timezone.utc).isoformat()
+    doc = payload.model_dump()
+    doc["id"] = str(uuid.uuid4())
+    doc["store_id"] = store_id
+    doc["barcode"] = (payload.barcode or "").strip() or None
+    doc["purchase_prices"] = []
+    doc["avg_sales"] = _compute_avg_sales(payload.avg_sales)
+    doc["created_at"] = now
+    doc["updated_at"] = now
+    await db.products.insert_one(dict(doc))
+    return Product(**doc)
+
+
+@api_router.patch("/inventory/products/{pid}", response_model=Product)
+async def update_product(pid: str, payload: ProductUpdate, store_id: str = Query(...), user=Depends(require_admin)):
+    await require_store_access(user, store_id)
+    upd = {k: v for k, v in payload.model_dump(exclude_unset=True).items() if v is not None}
+    if not upd:
+        raise HTTPException(status_code=400, detail="Nothing to update")
+    # Barcode uniqueness when changing
+    if "barcode" in upd and upd["barcode"]:
+        upd["barcode"] = upd["barcode"].strip()
+        dup = await db.products.find_one({
+            "store_id": store_id, "barcode": upd["barcode"], "id": {"$ne": pid},
+        })
+        if dup:
+            raise HTTPException(status_code=409, detail="A product with this barcode already exists")
+    if "avg_sales" in upd:
+        upd["avg_sales"] = _compute_avg_sales(upd["avg_sales"])
+    upd["updated_at"] = datetime.now(timezone.utc).isoformat()
+    res = await db.products.update_one({"id": pid, "store_id": store_id}, {"$set": upd})
+    if res.matched_count == 0:
+        raise HTTPException(status_code=404, detail="Product not found")
+    p = await db.products.find_one({"id": pid}, {"_id": 0})
+    return Product(**p)
+
+
+@api_router.delete("/inventory/products/{pid}", status_code=204)
+async def delete_product(pid: str, store_id: str = Query(...), user=Depends(require_admin)):
+    await require_store_access(user, store_id)
+    await db.products.delete_one({"id": pid, "store_id": store_id})
+    return Response(status_code=204)
+
+
+@api_router.post("/inventory/products/{pid}/purchase-price", response_model=Product)
+async def add_purchase_price(pid: str, payload: PurchasePriceCreate, store_id: str = Query(...), user=Depends(require_admin)):
+    await require_store_access(user, store_id)
+    p = await db.products.find_one({"id": pid, "store_id": store_id}, {"_id": 0})
+    if not p:
+        raise HTTPException(status_code=404, detail="Product not found")
+    entry = {
+        "id": str(uuid.uuid4()),
+        "date": (payload.date or today_str()),
+        "price": float(payload.price),
+        "supplier_id": payload.supplier_id,
+        "source": payload.source or "manual",
+        "note": payload.note or "",
+    }
+    await db.products.update_one(
+        {"id": pid, "store_id": store_id},
+        {
+            "$push": {"purchase_prices": entry},
+            "$set": {"updated_at": datetime.now(timezone.utc).isoformat()},
+        },
+    )
+    p = await db.products.find_one({"id": pid}, {"_id": 0})
+    return Product(**p)
+
+
+@api_router.delete("/inventory/products/{pid}/purchase-price/{entry_id}", response_model=Product)
+async def delete_purchase_price(pid: str, entry_id: str, store_id: str = Query(...), user=Depends(require_admin)):
+    await require_store_access(user, store_id)
+    res = await db.products.update_one(
+        {"id": pid, "store_id": store_id},
+        {
+            "$pull": {"purchase_prices": {"id": entry_id}},
+            "$set": {"updated_at": datetime.now(timezone.utc).isoformat()},
+        },
+    )
+    if res.matched_count == 0:
+        raise HTTPException(status_code=404, detail="Product not found")
+    p = await db.products.find_one({"id": pid}, {"_id": 0})
+    return Product(**p)
 
 
 # ============ Chat ============

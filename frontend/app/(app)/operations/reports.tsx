@@ -222,7 +222,7 @@ export default function ReportsScreen() {
     return (
       <View style={styles.previewCard}>
         <View style={styles.previewHead}>
-          <Text style={[styles.previewTitle, { color: colors.primary }]}>Accounting Summary</Text>
+          <Text style={[styles.previewTitle, { color: colors.primary }]}>Cash Accounting Summary</Text>
           <View style={[styles.statusBadge, { backgroundColor: accounting.submitted ? "#DCFCE7" : "#FEF3C7" }]}>
             <Text style={[styles.statusBadgeText, { color: accounting.submitted ? colors.success : "#B45309" }]}>
               {accounting.submitted ? "SUBMITTED" : "OPEN"}
@@ -345,7 +345,7 @@ export default function ReportsScreen() {
               <Text style={styles.pdfBtnText}>{busy === "closing" ? "Generating..." : "Download Closing Checklist PDF"}</Text>
             </TouchableOpacity>
 
-            <Text style={[styles.sectionLabel, { marginTop: spacing.lg }]}>Accounting</Text>
+            <Text style={[styles.sectionLabel, { marginTop: spacing.lg }]}>Cash Accounting</Text>
             {renderAccountingPreview()}
             <TouchableOpacity
               testID="report-accounting"

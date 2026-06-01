@@ -1,0 +1,47 @@
+{
+  "summary": "Iteration 4 backend-only review for Phase 3 Inventory module. Full suite green: 84/84 pytest tests pass (38 regression + 46 new inventory). New tests cover: Suppliers CRUD with cascade-pull from products.preferred_supplier_ids on delete; Categories CRUD with cascade-unset of products.category_id on delete; Purchase Types CRUD with cascade-pull from products.purchase_type_ids on delete; Products CRUD with list-view base64 stripping (thumbnail + images_count, barcode_image=None) and full payload on GET-by-id; barcode uniqueness per store on POST (409) AND on PATCH (409 against other products, self-PATCH allowed); avg_sales per_day computation on create AND on update (qty/days, 0 when days=0); purchase price history POST appends auto id+date and returns full updated product, DELETE removes matching entry; search by ?q matches name/company/keywords/size/pack_size case-insensitively with re.escape, numeric q additionally matches selling_price equality; ?barcode filters exactly. Permission tests confirm employee gets 403 on POST/PATCH/DELETE for suppliers, categories, purchase-types, products, and purchase-price endpoints; reads (list/get) allowed for all roles with store access. Validation: PATCH with empty body returns 400 (suppliers, products); unknown id returns 404. No regressions in auth, stores, users, checklists, accounting (incl. /entry/set and submit), chat or WebSocket scoping. The 'Cash Accounting' rename is UI/PDF copy only — backend has no such string and existing /api/accounting/* endpoints behave identically to iteration 3.",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [],
+    "react_native_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/backend_test.py",
+    "/app/backend/tests/test_accounting_v3.py",
+    "/app/backend/tests/test_inventory_phase3.py",
+    "/app/test_reports/pytest/pytest_results.xml"
+  ],
+  "action_items": [
+    "No backend blockers. Main agent may proceed with frontend wiring for the Inventory screens (Suppliers, Categories, Purchase Types, Products list/detail, Add purchase price, Search bar) and the 'Cash Accounting' label rename across operations cards, report titles, and PDF heading.",
+    "Recommendation (non-blocker): server.py is now ~1268 lines — past the 700 split threshold. Suggest splitting into routers/{stores,auth,users,checklists,accounting,inventory,chat}.py before Phase 4."
+  ],
+  "critical_code_review_comments": [
+    "Inventory router cleanly reuses require_admin + require_store_access; every write path is admin-only and store-scoped; list/get reads allowed for any user with store access — matches spec.",
+    "_product_search_filter uses re.escape on the query string before building the case-insensitive regex — safe against regex injection. Numeric q is added as an additional selling_price equality clause via $or — correct.",
+    "_strip_images_for_list cleanly mutates a copy (dict(p)) and adds images_count + thumbnail without touching the underlying doc — list endpoint never leaks base64 blobs while GET-by-id returns the full product including images and purchase_prices.",
+    "Barcode uniqueness on POST checks dup before insert (409); on PATCH it uses {'barcode': new, 'id': {'$ne': pid}} so self-PATCH with same barcode is a no-op success — correct semantics.",
+    "_compute_avg_sales handles AvgSales-model, dict, and None inputs; guards period_days=0 to avoid ZeroDivisionError; rounds per_day to 4 decimals — robust and predictable.",
+    "delete_supplier and delete_purchase_type use $pull on products' array fields scoped to store_id; delete_category uses $set: {category_id: None}. Each cascade is correctly scoped to {store_id} so cross-store data is untouched — verified by tests.",
+    "POST /inventory/products/{pid}/purchase-price auto-generates entry id (uuid) and falls back to today_str() when no date given; response returns the full updated product including new purchase_prices array — verified.",
+    "DELETE /inventory/products/{pid}/purchase-price/{entry_id} uses $pull on purchase_prices and returns the updated product; cleanly idempotent if entry already removed (still returns product) — acceptable, though arguably could 404 if entry not found. Not a blocker.",
+    "PATCH endpoints (suppliers, categories, purchase-types, products) consistently return 400 on empty body and 404 on unknown id — verified.",
+    "Products' barcode field is stored as None when blank string is provided on POST ((payload.barcode or '').strip() or None) — prevents '' colliding with another '' under unique index. On PATCH, empty/None barcode skips uniqueness check (intentional: allows clearing).",
+    "server.py is now 1268 lines — exceeds 700 split threshold flagged in iteration 2/3. Strongly recommend splitting into per-feature routers before Phase 4.",
+    "Mongo _id correctly excluded everywhere via projections; UUIDs used for all ids (suppliers, taxonomies, products, purchase_prices). Store-scoping consistently uses store_id query param + require_store_access.",
+    "Minor (non-blocker): ProductUpdate allows barcode='' to bypass uniqueness (skipped because falsy). If business requires uniqueness on empty barcodes too, that would change. Current behaviour matches spec ('barcode must be unique per store on create AND update') since empty/None is treated as 'no barcode'."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_inventory_phase3.py (new — 46 tests covering all Phase 3 inventory endpoints)"
+  ],
+  "success_rate": {"backend": "100% (84/84)", "frontend": "not tested (backend-only request)"},
+  "seed_data_creation": "Tests provision their own TEST_-prefixed isolated stores via POST /api/stores (with cleanup via DELETE that cascades products, suppliers, taxonomies, etc. — though server.py's delete_store currently does NOT cascade suppliers/taxonomies/products; see note below). Search test class uses its own dedicated store with 3 deterministic seeded products. Employee user (TEST_emp_*) created per module with cleanup. Default Admin/1234 + Main Store from server.py startup seed reused for auth fixtures.",
+  "retest_needed": false,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "BASE_URL env var: EXPO_PUBLIC_BACKEND_URL. New Phase 3 endpoints under /api/inventory/{suppliers,categories,purchase-types,products,products/{pid}/purchase-price}. All writes admin-only (require_admin); reads allowed for any user with store access. Product list strips base64 (thumbnail + images_count); GET-by-id returns full. Barcode unique per store on POST/PATCH (409). Avg_sales per_day = qty/days (0 when days=0). Search ?q is regex-escaped, matches name/company/keywords/size/pack_size case-insensitively; numeric q also matches selling_price equality. Note: delete_store cascade in server.py covers tasks/heads/entries/checklist_submissions/messages but NOT suppliers/taxonomies/products — this leaks orphan inventory documents when a store is deleted. Not in scope of this iteration's spec but flag for Phase 4. Frontend not tested this iteration.",
+  "rca_of_issue": "N/A — all tests pass."
+}

@@ -455,7 +455,7 @@ export default function AccountingScreen() {
           <AppIcon name="back" size={26} color="#fff" />
           <Text style={styles.btnLabel}>Back</Text>
         </TouchableOpacity>
-        <Text style={styles.headerTitle}>Accounting</Text>
+        <Text style={styles.headerTitle}>Cash Accounting</Text>
         <View style={{ flexDirection: "row" }}>
           {isAdmin && (
             <TouchableOpacity testID="add-head-btn" onPress={() => setModalOpen(true)} style={styles.headerAction}>
