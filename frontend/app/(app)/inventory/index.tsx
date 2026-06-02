@@ -407,22 +407,31 @@ const InventoryTab: React.FC<{ apiStore: any; isAdmin: boolean; scanned?: string
   const insets = useSafeAreaInsets();
   const [rows, setRows] = useState<StockRow[]>([]);
   const [products, setProducts] = useState<ProductListItem[]>([]);
+  const [categories, setCategories] = useState<{ id: string; name: string }[]>([]);
+  const [purchaseTypes, setPurchaseTypes] = useState<{ id: string; name: string }[]>([]);
+  const [catFilter, setCatFilter] = useState<string | null>(null);
+  const [ptFilter, setPtFilter] = useState<string | null>(null);
+  const [catMenuOpen, setCatMenuOpen] = useState(false);
+  const [ptMenuOpen, setPtMenuOpen] = useState(false);
   const [loading, setLoading] = useState(true);
   const [query, setQuery] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [resetting, setResetting] = useState(false);
-  // Per-product input draft so typing isn't interrupted by network round-trips
   const [drafts, setDrafts] = useState<Record<string, string>>({});
   const handledScanRef = React.useRef<string | null>(null);
 
   const load = useCallback(async () => {
     try {
-      const [stock, plist] = await Promise.all([
+      const [stock, plist, cats, pts] = await Promise.all([
         apiStore<StockRow[]>("/api/inventory/stock"),
         apiStore<ProductListItem[]>("/api/inventory/products?limit=500"),
+        apiStore<{ id: string; name: string }[]>("/api/inventory/categories"),
+        apiStore<{ id: string; name: string }[]>("/api/inventory/purchase-types"),
       ]);
       setRows(stock);
       setProducts(plist);
+      setCategories(cats);
+      setPurchaseTypes(pts);
     } catch (e: any) { Alert.alert("Error", e.message); }
     finally { setLoading(false); }
   }, [apiStore]);
@@ -506,13 +515,20 @@ const InventoryTab: React.FC<{ apiStore: any; isAdmin: boolean; scanned?: string
 
   const filtered = React.useMemo(() => {
     const q = query.trim().toLowerCase();
-    if (!q) return products;
-    return products.filter((p) =>
-      p.name.toLowerCase().includes(q) ||
-      (p.company || "").toLowerCase().includes(q) ||
-      (p.barcode || "").toLowerCase().includes(q),
-    );
-  }, [products, query]);
+    return products.filter((p: any) => {
+      if (catFilter && p.category_id !== catFilter) return false;
+      if (ptFilter) {
+        const ids: string[] = p.purchase_type_ids || [];
+        if (!ids.includes(ptFilter)) return false;
+      }
+      if (!q) return true;
+      return (
+        p.name.toLowerCase().includes(q) ||
+        (p.company || "").toLowerCase().includes(q) ||
+        (p.barcode || "").toLowerCase().includes(q)
+      );
+    });
+  }, [products, query, catFilter, ptFilter]);
 
   if (loading) return <View style={{ padding: 40, alignItems: "center" }}><ActivityIndicator color={colors.primary} /></View>;
 
