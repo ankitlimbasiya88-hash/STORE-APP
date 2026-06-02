@@ -58,12 +58,213 @@ export default function InventoryScreen() {
       </ScrollView>
 
       {tab === "products" && <ProductsTab apiStore={apiStore} isAdmin={!!isAdmin} scanned={params.scanned} />}
-      {tab === "inventory" && <Placeholder title="Inventory" desc="Stock levels per product. Coming next." />}
-      {tab === "shopping-list" && <Placeholder title="Shopping List" desc="Auto-suggested low-stock items + manual additions. Coming next." />}
-      {tab === "shopping" && <Placeholder title="Shopping" desc="Admin records purchases that update stock + price history. Coming next." />}
+      {tab === "inventory" && <InventoryTab apiStore={apiStore} isAdmin={!!isAdmin} scanned={params.scanned} />}
+      {tab === "shopping-list" && <Placeholder title="Shopping List" desc="Multi-list support coming next — backend is live, UI being built." />}
+      {tab === "shopping" && <Placeholder title="Shopping" desc="Admin purchase flow coming next." />}
     </SafeAreaView>
   );
 }
+
+// ------------- Inventory (stock count) tab -------------
+type StockRow = {
+  id: string;
+  store_id: string;
+  product_id: string;
+  quantity: number;
+  updated_at: string;
+  updated_by: string;
+  product?: { id: string; name: string; company?: string; size?: string; barcode?: string; selling_price?: number };
+};
+
+const InventoryTab: React.FC<{ apiStore: any; isAdmin: boolean; scanned?: string }> = ({ apiStore, isAdmin, scanned }) => {
+  const [rows, setRows] = useState<StockRow[]>([]);
+  const [products, setProducts] = useState<ProductListItem[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [query, setQuery] = useState("");
+  const [submitting, setSubmitting] = useState(false);
+  const [resetting, setResetting] = useState(false);
+  const handledScanRef = React.useRef<string | null>(null);
+
+  const load = useCallback(async () => {
+    try {
+      const [stock, plist] = await Promise.all([
+        apiStore<StockRow[]>("/api/inventory/stock"),
+        apiStore<ProductListItem[]>("/api/inventory/products?limit=500"),
+      ]);
+      setRows(stock);
+      setProducts(plist);
+    } catch (e: any) { Alert.alert("Error", e.message); }
+    finally { setLoading(false); }
+  }, [apiStore]);
+
+  useFocusEffect(useCallback(() => { load(); }, [load]));
+
+  // When returning from scanner with a barcode, find product and +1
+  useEffect(() => {
+    if (!scanned || handledScanRef.current === scanned) return;
+    handledScanRef.current = scanned;
+    (async () => {
+      try {
+        const list = await apiStore<ProductListItem[]>(`/api/inventory/products?barcode=${encodeURIComponent(scanned)}`);
+        if (list.length !== 1) {
+          Alert.alert("Not found", `No product with barcode "${scanned}".`);
+          return;
+        }
+        await apiStore("/api/inventory/stock/increment", {
+          method: "POST",
+          body: JSON.stringify({ product_id: list[0].id, delta: 1 }),
+        });
+        await load();
+      } catch (e: any) { Alert.alert("Error", e.message); }
+    })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [scanned]);
+
+  const setQuantity = async (productId: string, qty: number) => {
+    try {
+      await apiStore("/api/inventory/stock/set", {
+        method: "POST",
+        body: JSON.stringify({ product_id: productId, quantity: qty }),
+      });
+      await load();
+    } catch (e: any) { Alert.alert("Error", e.message); }
+  };
+
+  const increment = async (productId: string, delta: number) => {
+    try {
+      await apiStore("/api/inventory/stock/increment", {
+        method: "POST",
+        body: JSON.stringify({ product_id: productId, delta }),
+      });
+      await load();
+    } catch (e: any) { Alert.alert("Error", e.message); }
+  };
+
+  const resetAll = () => {
+    Alert.alert("Reset all counts?", "Sets every product's on-hand count to 0. Shopping list items remain untouched.", [
+      { text: "Cancel" },
+      {
+        text: "Reset", style: "destructive",
+        onPress: async () => {
+          setResetting(true);
+          try {
+            await apiStore("/api/inventory/stock/reset", { method: "POST" });
+            await load();
+          } catch (e: any) { Alert.alert("Error", e.message); }
+          finally { setResetting(false); }
+        },
+      },
+    ]);
+  };
+
+  const submit = async () => {
+    setSubmitting(true);
+    try {
+      const r = await apiStore<{ orders_added: number }>("/api/inventory/stock/submit", { method: "POST" });
+      Alert.alert("Submitted", `${r.orders_added} item(s) added/updated in the continuous shopping list.`);
+      await load();
+    } catch (e: any) { Alert.alert("Error", e.message); }
+    finally { setSubmitting(false); }
+  };
+
+  // Merged display list: every product with its current count (or 0)
+  const countByPid = React.useMemo(() => {
+    const m: Record<string, number> = {};
+    rows.forEach((r) => { m[r.product_id] = r.quantity; });
+    return m;
+  }, [rows]);
+
+  const filtered = React.useMemo(() => {
+    const q = query.trim().toLowerCase();
+    if (!q) return products;
+    return products.filter((p) =>
+      p.name.toLowerCase().includes(q) ||
+      (p.company || "").toLowerCase().includes(q) ||
+      (p.barcode || "").toLowerCase().includes(q),
+    );
+  }, [products, query]);
+
+  if (loading) return <View style={{ padding: 40, alignItems: "center" }}><ActivityIndicator color={colors.primary} /></View>;
+
+  return (
+    <View style={{ flex: 1 }}>
+      {/* Top action bar */}
+      <View style={styles.searchRow}>
+        <View style={styles.searchBox}>
+          <TextInput
+            value={query}
+            onChangeText={setQuery}
+            placeholder="Search to count"
+            placeholderTextColor={colors.textLight}
+            style={styles.searchInput}
+            returnKeyType="search"
+          />
+          <TouchableOpacity onPress={() => router.push({ pathname: "/(app)/inventory/scan" as any, params: { returnTo: "/(app)/inventory", tab: "inventory" } })} style={styles.scanBtn}>
+            <ScannerIcon size={20} color="#fff" />
+          </TouchableOpacity>
+        </View>
+        {isAdmin && (
+          <TouchableOpacity onPress={resetAll} disabled={resetting} style={[styles.searchSubmit, { borderColor: colors.danger }]}>
+            <Text style={[styles.searchSubmitText, { color: colors.danger }]}>{resetting ? "..." : "Reset"}</Text>
+          </TouchableOpacity>
+        )}
+      </View>
+
+      <FlatList
+        data={filtered}
+        keyExtractor={(p) => p.id}
+        contentContainerStyle={{ paddingHorizontal: spacing.md, paddingBottom: 80 }}
+        ItemSeparatorComponent={() => <View style={{ height: 6 }} />}
+        ListEmptyComponent={() => (
+          <View style={styles.emptyState}>
+            <Text style={styles.emptyTitle}>No products</Text>
+            <Text style={styles.emptyDesc}>Add products in the Products tab first.</Text>
+          </View>
+        )}
+        renderItem={({ item }) => {
+          const qty = countByPid[item.id] || 0;
+          return (
+            <View style={styles.stockCard}>
+              <View style={{ flex: 1, minWidth: 0 }}>
+                <Text style={styles.productName} numberOfLines={1}>{item.name}</Text>
+                {(item.company || item.size) ? (
+                  <Text style={styles.productMeta} numberOfLines={1}>
+                    {item.company}{item.size ? ` · ${item.size}` : ""}
+                  </Text>
+                ) : null}
+              </View>
+              <View style={styles.qtyRow}>
+                <TouchableOpacity onPress={() => increment(item.id, -1)} style={styles.qtyBtn}>
+                  <Text style={styles.qtyBtnText}>−</Text>
+                </TouchableOpacity>
+                <TextInput
+                  style={styles.qtyInput}
+                  value={String(qty)}
+                  keyboardType="decimal-pad"
+                  onChangeText={(v) => {
+                    const n = parseFloat(v.replace(/[^0-9.]/g, "")) || 0;
+                    setQuantity(item.id, n);
+                  }}
+                />
+                <TouchableOpacity onPress={() => increment(item.id, 1)} style={styles.qtyBtn}>
+                  <Text style={styles.qtyBtnText}>+</Text>
+                </TouchableOpacity>
+              </View>
+            </View>
+          );
+        }}
+      />
+
+      {isAdmin && (
+        <View style={styles.submitBar}>
+          <TouchableOpacity onPress={submit} disabled={submitting} style={styles.submitBtn}>
+            {submitting ? <ActivityIndicator color="#fff" /> : <Text style={styles.submitBtnText}>Submit Inventory → generate orders</Text>}
+          </TouchableOpacity>
+        </View>
+      )}
+    </View>
+  );
+};
 
 // ------------- Products tab -------------
 const ProductsTab: React.FC<{ apiStore: any; isAdmin: boolean; scanned?: string }> = ({ apiStore, isAdmin, scanned }) => {
@@ -356,4 +557,28 @@ const styles = StyleSheet.create({
   },
   placeholderTitle: { fontSize: 17, fontWeight: "700", color: colors.text },
   placeholderDesc: { fontSize: 13, color: colors.textMuted, marginTop: 6 },
+
+  // Inventory tab specific
+  stockCard: {
+    flexDirection: "row", alignItems: "center", gap: spacing.sm,
+    padding: spacing.sm, backgroundColor: colors.card, borderRadius: radius.md,
+    borderWidth: 1, borderColor: colors.border,
+  },
+  qtyRow: { flexDirection: "row", alignItems: "center", gap: 6 },
+  qtyBtn: {
+    width: 32, height: 32, borderRadius: 16, backgroundColor: colors.surface,
+    borderWidth: 1, borderColor: colors.border, alignItems: "center", justifyContent: "center",
+  },
+  qtyBtnText: { fontSize: 18, fontWeight: "700", color: colors.primary },
+  qtyInput: {
+    width: 56, paddingVertical: 6, textAlign: "center", fontWeight: "700", fontSize: 15,
+    color: colors.text, backgroundColor: colors.surface, borderRadius: radius.sm,
+    borderWidth: 1, borderColor: colors.border,
+  },
+  submitBar: {
+    position: "absolute", left: 0, right: 0, bottom: 0,
+    padding: spacing.md, backgroundColor: colors.card, borderTopWidth: 1, borderTopColor: colors.border,
+  },
+  submitBtn: { backgroundColor: colors.primary, padding: 14, borderRadius: radius.md, alignItems: "center" },
+  submitBtnText: { color: "#fff", fontWeight: "700", fontSize: 14 },
 });

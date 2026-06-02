@@ -1162,11 +1162,93 @@ async def delete_purchase_price(pid: str, entry_id: str, store_id: str = Query(.
 
 # ---------- Shopping List ----------
 
+class ShoppingListCreate(BaseModel):
+    name: str = Field(min_length=1, max_length=120)
+
+
+class ShoppingListRename(BaseModel):
+    name: str = Field(min_length=1, max_length=120)
+
+
+class ShoppingList(BaseModel):
+    id: str
+    store_id: str
+    kind: Literal["continuous", "custom"]
+    name: str
+    created_at: str
+    created_by: str
+
+
+async def _get_or_create_continuous(store_id: str, user_name: str) -> dict:
+    doc = await db.shopping_lists.find_one({"store_id": store_id, "kind": "continuous"}, {"_id": 0})
+    if doc:
+        return doc
+    now = datetime.now(timezone.utc).isoformat()
+    doc = {
+        "id": str(uuid.uuid4()), "store_id": store_id, "kind": "continuous",
+        "name": "Continuous List", "created_at": now, "created_by": user_name,
+    }
+    await db.shopping_lists.insert_one(dict(doc))
+    return doc
+
+
+@api_router.get("/inventory/shopping-lists", response_model=List[ShoppingList])
+async def list_shopping_lists(store_id: str = Query(...), user=Depends(get_current_user)):
+    await require_store_access(user, store_id)
+    await _get_or_create_continuous(store_id, user["name"])  # ensure continuous exists
+    out: List[dict] = []
+    async for l in db.shopping_lists.find({"store_id": store_id}, {"_id": 0}).sort([("kind", 1), ("created_at", 1)]):
+        out.append(l)
+    return out
+
+
+@api_router.post("/inventory/shopping-lists", response_model=ShoppingList, status_code=201)
+async def create_custom_shopping_list(payload: ShoppingListCreate, store_id: str = Query(...), user=Depends(get_current_user)):
+    await require_store_access(user, store_id)
+    now = datetime.now(timezone.utc).isoformat()
+    doc = {
+        "id": str(uuid.uuid4()), "store_id": store_id, "kind": "custom",
+        "name": payload.name.strip(), "created_at": now, "created_by": user["name"],
+    }
+    await db.shopping_lists.insert_one(dict(doc))
+    return ShoppingList(**doc)
+
+
+@api_router.patch("/inventory/shopping-lists/{lid}", response_model=ShoppingList)
+async def rename_shopping_list(lid: str, payload: ShoppingListRename, store_id: str = Query(...), user=Depends(get_current_user)):
+    await require_store_access(user, store_id)
+    res = await db.shopping_lists.update_one(
+        {"id": lid, "store_id": store_id, "kind": "custom"},
+        {"$set": {"name": payload.name.strip()}},
+    )
+    if res.matched_count == 0:
+        raise HTTPException(status_code=404, detail="Custom list not found (continuous list cannot be renamed)")
+    doc = await db.shopping_lists.find_one({"id": lid}, {"_id": 0})
+    return ShoppingList(**doc)
+
+
+@api_router.delete("/inventory/shopping-lists/{lid}", status_code=204)
+async def delete_custom_shopping_list(lid: str, store_id: str = Query(...), user=Depends(get_current_user)):
+    await require_store_access(user, store_id)
+    target = await db.shopping_lists.find_one({"id": lid, "store_id": store_id})
+    if not target:
+        return Response(status_code=204)
+    if target.get("kind") == "continuous":
+        raise HTTPException(status_code=400, detail="Continuous list cannot be deleted")
+    await db.shopping_lists.delete_one({"id": lid, "store_id": store_id})
+    await db.shopping_list.delete_many({"list_id": lid, "store_id": store_id})
+    return Response(status_code=204)
+
+
 class ShoppingListItemCreate(BaseModel):
+    list_id: Optional[str] = None  # defaults to continuous list
     product_id: Optional[str] = None
     text: str = ""
     quantity: float = 1
     note: str = ""
+    supplier_id: Optional[str] = None
+    purchase_price_type: Optional[Literal["regular", "deal"]] = None
+    purchase_price: Optional[float] = None
 
 
 class ShoppingListItemUpdate(BaseModel):
@@ -1174,26 +1256,40 @@ class ShoppingListItemUpdate(BaseModel):
     quantity: Optional[float] = None
     note: Optional[str] = None
     status: Optional[Literal["pending", "done"]] = None
+    supplier_id: Optional[str] = None
+    purchase_price_type: Optional[Literal["regular", "deal"]] = None
+    purchase_price: Optional[float] = None
 
 
 class ShoppingListItem(BaseModel):
     id: str
     store_id: str
+    list_id: str
     product_id: Optional[str] = None
     product_name: Optional[str] = None
     text: str = ""
     quantity: float = 1
     note: str = ""
-    status: str = "pending"  # pending | done
+    status: str = "pending"
+    supplier_id: Optional[str] = None
+    purchase_price_type: Optional[str] = None  # "regular" | "deal" | None
+    purchase_price: Optional[float] = None
+    source: str = "manual"                      # manual | inventory
     added_by: str
     created_at: str
     updated_at: str
 
 
 @api_router.get("/inventory/shopping-list", response_model=List[ShoppingListItem])
-async def list_shopping_items(store_id: str = Query(...), status: Optional[str] = None, user=Depends(get_current_user)):
+async def list_shopping_items(
+    store_id: str = Query(...),
+    list_id: Optional[str] = None,
+    status: Optional[str] = None,
+    user=Depends(get_current_user),
+):
     await require_store_access(user, store_id)
-    flt: dict = {"store_id": store_id}
+    cont = await _get_or_create_continuous(store_id, user["name"])
+    flt: dict = {"store_id": store_id, "list_id": list_id or cont["id"]}
     if status:
         flt["status"] = status
     out: List[dict] = []
@@ -1207,25 +1303,34 @@ async def create_shopping_item(payload: ShoppingListItemCreate, store_id: str = 
     await require_store_access(user, store_id)
     if not payload.product_id and not (payload.text or "").strip():
         raise HTTPException(status_code=400, detail="Provide a product_id or text")
+    cont = await _get_or_create_continuous(store_id, user["name"])
+    list_id = payload.list_id or cont["id"]
+    # validate list belongs to this store
+    lst = await db.shopping_lists.find_one({"id": list_id, "store_id": store_id})
+    if not lst:
+        raise HTTPException(status_code=404, detail="Shopping list not found")
     product_name: Optional[str] = None
+    purchase_price_type = payload.purchase_price_type
     if payload.product_id:
-        p = await db.products.find_one({"id": payload.product_id, "store_id": store_id}, {"_id": 0, "name": 1})
+        p = await db.products.find_one({"id": payload.product_id, "store_id": store_id}, {"_id": 0})
         if not p:
             raise HTTPException(status_code=404, detail="Product not found")
         product_name = p["name"]
+        if purchase_price_type is None:
+            ppt = p.get("purchase_price_type", "regular")
+            purchase_price_type = "regular" if ppt in ("regular", "both") else "deal"
     now = datetime.now(timezone.utc).isoformat()
     doc = {
-        "id": str(uuid.uuid4()),
-        "store_id": store_id,
-        "product_id": payload.product_id,
-        "product_name": product_name,
-        "text": (payload.text or "").strip(),
-        "quantity": float(payload.quantity or 1),
-        "note": payload.note or "",
-        "status": "pending",
+        "id": str(uuid.uuid4()), "store_id": store_id, "list_id": list_id,
+        "product_id": payload.product_id, "product_name": product_name,
+        "text": (payload.text or "").strip(), "quantity": float(payload.quantity or 1),
+        "note": payload.note or "", "status": "pending",
+        "supplier_id": payload.supplier_id,
+        "purchase_price_type": purchase_price_type,
+        "purchase_price": payload.purchase_price,
+        "source": "manual",
         "added_by": user["name"],
-        "created_at": now,
-        "updated_at": now,
+        "created_at": now, "updated_at": now,
     }
     await db.shopping_list.insert_one(dict(doc))
     return ShoppingListItem(**doc)
@@ -1248,7 +1353,6 @@ async def update_shopping_item(iid: str, payload: ShoppingListItemUpdate, store_
 @api_router.delete("/inventory/shopping-list/{iid}", status_code=204)
 async def delete_shopping_item(iid: str, store_id: str = Query(...), user=Depends(get_current_user)):
     await require_store_access(user, store_id)
-    # Employees can only delete their own items; admin can delete any
     item = await db.shopping_list.find_one({"id": iid, "store_id": store_id})
     if not item:
         return Response(status_code=204)
@@ -1256,6 +1360,136 @@ async def delete_shopping_item(iid: str, store_id: str = Query(...), user=Depend
         raise HTTPException(status_code=403, detail="Only the admin or the original adder can delete this item")
     await db.shopping_list.delete_one({"id": iid, "store_id": store_id})
     return Response(status_code=204)
+
+
+# ---------- Inventory Counts (Milestone B) ----------
+
+class InventoryCount(BaseModel):
+    id: str
+    store_id: str
+    product_id: str
+    quantity: float = 0
+    updated_at: str
+    updated_by: str
+
+
+class InventoryIncrement(BaseModel):
+    product_id: str
+    delta: float = 1
+
+
+class InventorySet(BaseModel):
+    product_id: str
+    quantity: float = 0
+
+
+@api_router.get("/inventory/stock")
+async def list_stock(store_id: str = Query(...), user=Depends(get_current_user)):
+    await require_store_access(user, store_id)
+    rows: List[dict] = []
+    async for r in db.inventory_counts.find({"store_id": store_id}, {"_id": 0}):
+        rows.append(r)
+    # join with product names for display
+    pids = [r["product_id"] for r in rows]
+    products = {}
+    if pids:
+        async for p in db.products.find({"store_id": store_id, "id": {"$in": pids}}, {"_id": 0, "id": 1, "name": 1, "company": 1, "size": 1, "barcode": 1, "selling_price": 1}):
+            products[p["id"]] = p
+    return [{**r, "product": products.get(r["product_id"])} for r in rows]
+
+
+async def _upsert_count(store_id: str, product_id: str, value: float, mode: Literal["inc", "set"], user_name: str) -> dict:
+    # ensure product exists
+    p = await db.products.find_one({"id": product_id, "store_id": store_id}, {"_id": 0, "id": 1})
+    if not p:
+        raise HTTPException(status_code=404, detail="Product not found")
+    now = datetime.now(timezone.utc).isoformat()
+    if mode == "set":
+        await db.inventory_counts.update_one(
+            {"store_id": store_id, "product_id": product_id},
+            {"$set": {"quantity": float(value), "updated_at": now, "updated_by": user_name},
+             "$setOnInsert": {"id": str(uuid.uuid4()), "store_id": store_id, "product_id": product_id}},
+            upsert=True,
+        )
+    else:  # inc
+        await db.inventory_counts.update_one(
+            {"store_id": store_id, "product_id": product_id},
+            {"$inc": {"quantity": float(value)},
+             "$set": {"updated_at": now, "updated_by": user_name},
+             "$setOnInsert": {"id": str(uuid.uuid4()), "store_id": store_id, "product_id": product_id}},
+            upsert=True,
+        )
+    doc = await db.inventory_counts.find_one({"store_id": store_id, "product_id": product_id}, {"_id": 0})
+    return doc
+
+
+@api_router.post("/inventory/stock/increment")
+async def increment_stock(payload: InventoryIncrement, store_id: str = Query(...), user=Depends(get_current_user)):
+    await require_store_access(user, store_id)
+    return await _upsert_count(store_id, payload.product_id, payload.delta, "inc", user["name"])
+
+
+@api_router.post("/inventory/stock/set")
+async def set_stock(payload: InventorySet, store_id: str = Query(...), user=Depends(get_current_user)):
+    await require_store_access(user, store_id)
+    return await _upsert_count(store_id, payload.product_id, payload.quantity, "set", user["name"])
+
+
+@api_router.post("/inventory/stock/reset")
+async def reset_stock(store_id: str = Query(...), user=Depends(get_current_user)):
+    await require_store_access(user, store_id)
+    res = await db.inventory_counts.delete_many({"store_id": store_id})
+    return {"reset_count": res.deleted_count}
+
+
+@api_router.post("/inventory/stock/submit")
+async def submit_stock(store_id: str = Query(...), user=Depends(get_current_user)):
+    """Compute required order quantity for each product where on-hand qty is
+    below the configured max_inventory_days × per-day sales. Top-up replaces
+    any existing continuous-list entry for that product (per user choice 1.a)."""
+    await require_store_access(user, store_id)
+    cont = await _get_or_create_continuous(store_id, user["name"])
+    counts = {r["product_id"]: float(r.get("quantity", 0))
+              async for r in db.inventory_counts.find({"store_id": store_id}, {"_id": 0, "product_id": 1, "quantity": 1})}
+    suggestions: List[dict] = []
+    async for p in db.products.find({"store_id": store_id}, {"_id": 0}):
+        per_day = float(((p.get("avg_sales") or {}).get("per_day")) or 0)
+        max_days = int(p.get("max_inventory_days") or 0)
+        target = per_day * max_days
+        on_hand = counts.get(p["id"], 0.0)
+        if target <= 0:
+            continue
+        deficit = target - on_hand
+        if deficit <= 0.0001:
+            continue
+        order_qty = round(deficit, 4)
+        suggestions.append({"product_id": p["id"], "name": p["name"], "quantity": order_qty, "purchase_price_type": p.get("purchase_price_type", "regular")})
+    # Apply "top up to max" — replace existing continuous-list entry for same product
+    now = datetime.now(timezone.utc).isoformat()
+    written = 0
+    for s in suggestions:
+        existing = await db.shopping_list.find_one({
+            "store_id": store_id, "list_id": cont["id"], "product_id": s["product_id"], "status": "pending",
+        })
+        ppt = "regular" if s["purchase_price_type"] in ("regular", "both") else "deal"
+        if existing:
+            await db.shopping_list.update_one(
+                {"id": existing["id"]},
+                {"$set": {"quantity": s["quantity"], "source": "inventory", "updated_at": now,
+                          "purchase_price_type": existing.get("purchase_price_type") or ppt}},
+            )
+        else:
+            await db.shopping_list.insert_one({
+                "id": str(uuid.uuid4()), "store_id": store_id, "list_id": cont["id"],
+                "product_id": s["product_id"], "product_name": s["name"],
+                "text": "", "quantity": s["quantity"], "note": "auto: low stock",
+                "status": "pending", "supplier_id": None,
+                "purchase_price_type": ppt, "purchase_price": None,
+                "source": "inventory", "added_by": user["name"],
+                "created_at": now, "updated_at": now,
+            })
+        written += 1
+    return {"orders_added": written, "list_id": cont["id"]}
 
 
 # ============ Chat ============
