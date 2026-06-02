@@ -57,8 +57,20 @@ Cash Accounting label finalised. New "Inventory & Orders" module with **4-tab st
 
 ### Coming next (Milestone B+)
 - Inventory stock tracking screen
-- Shopping List screen (with auto-suggestions based on min_inventory_days vs per-day sales)
+- Shopping List screen UI (backend is now live ✅)
 - Shopping screen (admin records actual purchases — auto-updates stock + adds to purchase_prices history)
+
+## Phase 3 polish (iter 3.1)
+1. **Auto-generated barcode image** — admin no longer needs to capture a camera photo of the barcode. Once a barcode value is entered/scanned, a scannable Code128 barcode is rendered (via `react-native-svg` and a small JS Code128 encoder) and shown alongside product photos in the gallery.
+2. **Read-only product detail page (`product/[id]/index.tsx`)** — opens by default on tap/scan with a "Modify" button (admin only) leading to the editable form at `product/[id]/edit.tsx`.
+3. **Keywords auto-derived on backend** — manual keywords field removed from UI. Server computes keywords from name + company + selling_price (numeric and float forms) + category name on every create/update.
+4. **AppIcon chevron rotations fixed** — `down` and `up` were swapped; dropdowns now correctly show ▾.
+5. **Suppliers button** moved inline next to Categories (no longer in the header).
+6. **Shopping List backend live** — `GET/POST/PATCH/DELETE /api/inventory/shopping-list`. Employees can add/check own items; admin can manage all. Product detail screen has an "Add to Shopping List" button that adds the current product as a pending item.
+
+New dependencies: `react-native-svg` (Expo-compat) for SVG barcode rendering. Pure-JS Code128 encoder at `/app/frontend/src/utils/code128.ts` (no external lib).
+
+Backend test count: 111/111 passing (84 regression + 27 new).
 
 ## Architecture
 - **Frontend**: Expo SDK 54, expo-router, TypeScript
