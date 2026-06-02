@@ -106,10 +106,11 @@ export const buildShoppingHtml = (d: { storeName: string; listName: string; supp
     t === "deal" ? "Deal" : t === "both" ? "Both" : "Regular";
   const rows = d.items.length
     ? d.items.map((it) => {
-        const line = (it.purchase_price != null && it.quantity) ? (it.purchase_price * it.quantity) : null;
+        const qty = Math.max(0, Math.round(it.quantity || 0));
+        const line = (it.purchase_price != null && qty) ? (it.purchase_price * qty) : null;
         return `<tr>
           <td>${escape(it.name)}${it.note ? `<div class="note">${escape(it.note)}</div>` : ""}</td>
-          <td class="num">${it.quantity}</td>
+          <td class="num">${qty}</td>
           <td>${escape(it.supplier)}</td>
           <td>${ppLabel(it.purchase_price_type)}</td>
           <td class="num">${it.purchase_price != null ? money(it.purchase_price) : "—"}</td>
@@ -254,7 +255,7 @@ export const buildShoppedHtml = (d: {
     ? d.items.map((it) => `
       <tr>
         <td>${escape(it.name)}${it.note ? `<div class="note">${escape(it.note)}</div>` : ""}</td>
-        <td class="num">${it.quantity}</td>
+        <td class="num">${Math.max(0, Math.round(it.quantity || 0))}</td>
         <td>${ppLabel(it.purchase_price_type)}</td>
         <td class="num">${money(it.purchase_price)}</td>
         <td class="num">${it.tax_pct > 0 ? `${it.tax_pct}%` : "—"}</td>

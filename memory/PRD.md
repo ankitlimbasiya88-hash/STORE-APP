@@ -60,6 +60,11 @@ Cash Accounting label finalised. New "Inventory & Orders" module with **4-tab st
 - Shopping List screen UI (backend is now live ✅)
 - Shopping screen (admin records actual purchases — auto-updates stock + adds to purchase_prices history)
 
+## Hotfixes (iter 3.3.2)
+- **CSV error fix**: `expo-file-system` v19 moved its classic API behind `expo-file-system/legacy`. `csv.ts` now imports from that path, eliminating the `EncodingType of undefined` crash.
+- **PriceInput blink fix**: replaced focus-tracking with a `dirty` ref. Once the user starts typing, parent `value` syncs are paused until blur. No more re-render flicker as the parent draft state updates on every keystroke.
+- **PDF quantity → integer**: both `buildShoppingHtml` and `buildShoppedHtml` now wrap quantity in `Math.max(0, Math.round(...))` so legacy decimal qtys render as whole units (e.g. `55.53` → `56`).
+
 ## Shopping List / Shopping polish + CSV export (iter 3.3.1)
 - **Search bar** added to both Shopping List and Shopping tabs (full-width input matching the Products tab pattern, with clear-X button).
 - **Category sort dropdown** added next to the Supplier filter on both tabs (loads `/api/inventory/categories`; supports "All", "Uncategorized", and each category).

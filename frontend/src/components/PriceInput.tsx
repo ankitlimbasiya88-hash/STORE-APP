@@ -65,20 +65,32 @@ export const PriceInput: React.FC<Props> = ({
   autoFocus,
 }) => {
   const [digits, setDigits] = useState<string>(() => floatToDigits(value));
-  const focused = useRef(false);
+  // Once the user starts typing, stop syncing from the parent's `value` prop.
+  // The parent's value will be re-applied only after blur (commit) or when the
+  // incoming value differs from what our digits represent.
+  const dirty = useRef(false);
 
-  // Sync from parent only when the input is not focused (so we don't fight the user)
   useEffect(() => {
-    if (!focused.current) {
-      const incoming = floatToDigits(value);
-      setDigits(incoming);
-    }
+    if (dirty.current) return;
+    const incoming = floatToDigits(value);
+    setDigits(incoming);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [value]);
 
   const handleChange = (txt: string) => {
+    dirty.current = true;
     const clean = sanitizeDigits(txt);
     setDigits(clean);
     onChangeNumber(digitsToFloat(clean));
+  };
+
+  const handleBlur = () => {
+    dirty.current = false;
+    const final = digitsToFloat(digits);
+    onCommit?.(final);
+    // Re-sync to parent's view of the value after commit, so any rounding/clamping
+    // performed by the parent reflects back into the input
+    setDigits(floatToDigits(final));
   };
 
   return (
@@ -91,11 +103,7 @@ export const PriceInput: React.FC<Props> = ({
         placeholder={placeholder}
         placeholderTextColor={colors.textLight}
         value={formatCentsDisplay(digits)}
-        onFocus={() => { focused.current = true; }}
-        onBlur={() => {
-          focused.current = false;
-          onCommit?.(digitsToFloat(digits));
-        }}
+        onBlur={handleBlur}
         onChangeText={handleChange}
         style={[styles.input, inputStyle]}
         autoFocus={autoFocus}
