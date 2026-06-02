@@ -60,7 +60,34 @@ Cash Accounting label finalised. New "Inventory & Orders" module with **4-tab st
 - Shopping List screen UI (backend is now live ✅)
 - Shopping screen (admin records actual purchases — auto-updates stock + adds to purchase_prices history)
 
-## Money input & integer qty (iter 3.1.2)
+## Milestone D — Shopping execution + Shopped history (iter 3.2)
+### Backend (`server.py`)
+- New collection: **`shopped_records`** (permanent history of executed shopping batches).
+- New endpoints:
+  - `POST /api/inventory/shopping/execute` — atomically moves selected `shopping_list` items into `shopped_records` with snapshotted product `tax_pct`, computed line_total / tax_amount / total_with_tax. Source items are deleted (move semantics). Inventory counts are **NOT** modified (per user spec).
+  - `GET /api/inventory/shopped?days=&supplier_id=` — list, newest first.
+  - `GET /api/inventory/shopped/batch/{batch_id}` — single batch.
+  - `DELETE /api/inventory/shopped/{record_id}` (admin) — undo one row.
+  - `DELETE /api/inventory/shopped/batch/{batch_id}` (admin) — undo full batch.
+- Helper `money_round()` uses `Decimal` + `ROUND_HALF_UP` for accurate currency math (replaces banker's-rounding `round(x, 2)`).
+
+### Frontend
+- **`Shopping` tab** (4th tab in `/inventory`):
+  - List switcher + supplier filter + Select-all/Clear.
+  - Per-row: checkbox · thumbnail · name · tax label · Qty · Price (cents-style PriceInput) · supplier · live **line total incl tax**.
+  - Sticky bottom bar shows total count + subtotal + tax + grand total, with **Submit** button → confirmation alert → POST `/shopping/execute`.
+- **`/inventory/shopped` screen** (linked via the History button in Shopping tab):
+  - Batches grouped by `batch_id × supplier_id`, sorted newest-first.
+  - Tap a batch → expand to see each item with qty × price · tax · line total.
+  - Per-batch actions: **PDF** (Share/Print via new `buildShoppedHtml`) and **Delete batch** (admin only).
+  - Supplier filter modal.
+
+### Tests
+- `/app/backend/tests/test_shopped_records.py` — **7/7 PASS** (happy path with 8.5% tax, multi-item batch, text-only items, admin-only delete, validation, batch sort).
+- 59/59 prior tests still passing (ceiling + both-PPT + Phase 5 + accounting v3).
+
+### Icons
+- `AppIcon` gained `clock`, `filter`, `cart` glyphs (drawn from primitive Views, no font dependency).
 - New shared `<PriceInput>` component (`/app/frontend/src/components/PriceInput.tsx`) with **cents-style entry**:
   - Each digit typed counts as 1 cent — type `299` → displays `$2.99`; `12345` → `$123.45`; `1` → `$0.01`.
   - Backspace removes one digit at a time. `keyboardType="number-pad"` (no decimal key needed).
