@@ -60,6 +60,7 @@ export default function ProductForm({ mode, initial, initialBarcode, onSaved }: 
   const [minDays, setMinDays] = useState(String(initial?.min_inventory_days || ""));
   const [maxDays, setMaxDays] = useState(String(initial?.max_inventory_days || ""));
   const [purchaseTypeIds, setPurchaseTypeIds] = useState<string[]>(initial?.purchase_type_ids || []);
+  const [purchasePriceType, setPurchasePriceType] = useState<"regular" | "deal" | "both">(((initial as any)?.purchase_price_type) || "regular");
 
   // Lookup data
   const [suppliers, setSuppliers] = useState<Supplier[]>([]);
@@ -228,6 +229,7 @@ export default function ProductForm({ mode, initial, initialBarcode, onSaved }: 
         min_inventory_days: Math.round(numField(minDays)),
         max_inventory_days: Math.round(numField(maxDays)),
         purchase_type_ids: purchaseTypeIds,
+        purchase_price_type: purchasePriceType,
       };
 
       let saved: Product;
@@ -519,6 +521,26 @@ export default function ProductForm({ mode, initial, initialBarcode, onSaved }: 
                 })}
               </View>
             )}
+          </Section>
+
+          {/* Purchase Price Type */}
+          <Section title="Purchase Price Type" subtitle="Which price type applies when this product is bought">
+            <View style={styles.chipsWrap}>
+              {(["regular", "deal", "both"] as const).map((opt) => {
+                const sel = purchasePriceType === opt;
+                const label = opt === "regular" ? "Regular" : opt === "deal" ? "Deal" : "Both";
+                return (
+                  <TouchableOpacity
+                    key={opt}
+                    style={[styles.chip, sel && styles.chipActive]}
+                    onPress={() => !readOnly && setPurchasePriceType(opt)}
+                    disabled={readOnly}
+                  >
+                    <Text style={[styles.chipText, sel && { color: "#fff" }]}>{label}</Text>
+                  </TouchableOpacity>
+                );
+              })}
+            </View>
           </Section>
 
           {!readOnly && (

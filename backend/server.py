@@ -769,6 +769,7 @@ class ProductCreate(BaseModel):
     min_inventory_days: int = 0
     max_inventory_days: int = 0
     purchase_type_ids: List[str] = []
+    purchase_price_type: Literal["regular", "deal", "both"] = "regular"
     keywords: List[str] = []
 
 
@@ -790,6 +791,7 @@ class ProductUpdate(BaseModel):
     min_inventory_days: Optional[int] = None
     max_inventory_days: Optional[int] = None
     purchase_type_ids: Optional[List[str]] = None
+    purchase_price_type: Optional[Literal["regular", "deal", "both"]] = None
     keywords: Optional[List[str]] = None
 
 
@@ -814,6 +816,7 @@ class Product(BaseModel):
     min_inventory_days: int = 0
     max_inventory_days: int = 0
     purchase_type_ids: List[str] = []
+    purchase_price_type: str = "regular"
     keywords: List[str] = []
     created_at: str
     updated_at: str

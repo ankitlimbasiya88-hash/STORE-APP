@@ -218,16 +218,28 @@ export default function ProductDetailScreen() {
           </Section>
         )}
 
-        {/* Purchase types */}
-        {ptItems.length > 0 && (
-          <Section title="Purchase Types">
+        {/* Purchase types — always shown so admin sees if it's missing */}
+        <Section title="Purchase Types">
+          {ptItems.length > 0 ? (
             <View style={styles.chipsWrap}>
               {ptItems.map((t) => (
                 <View key={t.id} style={styles.chip}><Text style={styles.chipText}>{t.name}</Text></View>
               ))}
             </View>
-          </Section>
-        )}
+          ) : (
+            <Text style={styles.subtle}>None selected{isAdmin ? " — tap Modify to add" : ""}</Text>
+          )}
+          <View style={{ height: 6 }} />
+          <Fact
+            label="Purchase Price Type"
+            value={
+              ((product as any).purchase_price_type === "deal") ? "Deal" :
+              ((product as any).purchase_price_type === "both") ? "Both (Regular + Deal)" :
+              "Regular"
+            }
+            highlight
+          />
+        </Section>
 
         {/* Sales */}
         {(product.avg_sales?.period_days || product.avg_sales?.quantity) ? (
