@@ -60,7 +60,20 @@ Cash Accounting label finalised. New "Inventory & Orders" module with **4-tab st
 - Shopping List screen UI (backend is now live ✅)
 - Shopping screen (admin records actual purchases — auto-updates stock + adds to purchase_prices history)
 
-## Shopping List polish (iter 3.1.1)
+## Money input & integer qty (iter 3.1.2)
+- New shared `<PriceInput>` component (`/app/frontend/src/components/PriceInput.tsx`) with **cents-style entry**:
+  - Each digit typed counts as 1 cent — type `299` → displays `$2.99`; `12345` → `$123.45`; `1` → `$0.01`.
+  - Backspace removes one digit at a time. `keyboardType="number-pad"` (no decimal key needed).
+- Adopted in:
+  - Shopping List row → price column (auto-decimal).
+  - Product form → Selling Price, and the Purchase Price entry modal.
+  - Cash Accounting → single-amount input on every head + multi-entry amount input.
+- **Quantities are now integer-only** in the Shopping List & Inventory tabs:
+  - Both inputs use `keyboardType="number-pad"` and strip everything but digits.
+  - Display rounds existing decimal qtys (`Math.round`) so leftover `55.53` values render as `56`.
+  - Backend `submit_stock` now writes `max(1, ceil(deficit))` instead of `round(deficit, 4)` so newly generated continuous-list rows are always whole units (e.g. per_day=1.43, max_days=4 → qty=6).
+
+Backend tests: **59/59 passing** (5 new submit-stock-ceiling + 13 both-PPT + 27 phase 5 regression + 14 accounting v3).
 - Shopping List row redesigned for clarity & one-handed use:
   - 44×44 product thumbnail (base64 from `/api/inventory/products?...` thumbnail) on the left, falls back to first letter
   - Labeled fields: **QTY · SUPPLIER · PURCHASE PRICE TYPE · PRICE · NOTES**
