@@ -45,9 +45,9 @@ export const AppIcon: React.FC<Props> = ({ name, size = 20, color = "#0F172A", w
     case "forward":
       return <Chevron size={size} color={color} stroke={stroke} rotate="135deg" />;
     case "up":
-      return <Chevron size={size} color={color} stroke={stroke} rotate="-135deg" />;
-    case "down":
       return <Chevron size={size} color={color} stroke={stroke} rotate="45deg" />;
+    case "down":
+      return <Chevron size={size} color={color} stroke={stroke} rotate="-135deg" />;
 
     case "plus":
       return <Plus size={size} color={color} stroke={stroke} />;

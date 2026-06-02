@@ -1,0 +1,47 @@
+{
+  "summary": "Iteration 5 backend-only review for Phase 3 polish. Full suite green: 111/111 pytest tests pass (84 regression + 27 new). New coverage validates: (1) keyword auto-derivation from name+company+selling_price+category_name on POST /api/inventory/products — tokens lowercased, length>=2, deduped, numeric price added in two forms ('2.99' and '3' for $2.99); (2) client-supplied `keywords` are now REPLACED by server output as required by spec; (3) selling_price=0 yields no numeric tokens; (4) PATCH recomputes keywords ONLY when name/company/selling_price/category_id changes and preserves them when only size/pack_size change; (5) GET /api/inventory/products?q=milk, q=dairy, q=2.99, q=3 all find 'Whole Milk' by 'Dairy Co' at $2.99 via the auto-derived keywords; (6) Shopping List endpoints: POST accepts text-only and product_id (which populates product_name); 400 when neither provided; 404 when product_id unknown; ALL roles can create/list/patch; admin can DELETE any item; employee can DELETE only items they added (403 otherwise); DELETE is idempotent (204) for unknown ids; ?status=pending|done filter works; results sorted by created_at desc. Regression: prior 84 tests (auth, stores, store-scoping, accounting incl. /entry/set + submit, checklists, chat, websocket scoping, suppliers/categories/purchase-types CRUD + cascades, products CRUD + list-base64-strip, barcode uniqueness on create+update, avg_sales, purchase price history, search by name/company/size/pack_size/barcode/numeric-selling-price) ALL still pass. Updated 1 prior test (`test_search_by_keyword`) to query an auto-derived token instead of a user-supplied one since user keywords are now discarded — this is a spec-driven adjustment, not a regression.",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [],
+    "react_native_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/backend_test.py",
+    "/app/backend/tests/test_accounting_v3.py",
+    "/app/backend/tests/test_inventory_phase3.py",
+    "/app/backend/tests/test_inventory_phase5.py",
+    "/app/test_reports/pytest/pytest_results.xml"
+  ],
+  "action_items": [
+    "No backend blockers. Main agent may proceed with frontend polish: SVG barcode rendering, read-only product detail with Modify button, removing keywords input from the product form, dropdown chevron direction, suppliers button placement, and Shopping List screens.",
+    "Reminder (carried over): server.py is now ~1401 lines, well past the 700-line split threshold. Suggest splitting into routers/{stores,auth,users,checklists,accounting,inventory,chat}.py — non-blocker but increasing tech debt each iteration."
+  ],
+  "critical_code_review_comments": [
+    "_auto_keywords (server.py:1033) correctly tokenizes name/company/category via re.split on non-alphanumerics, enforces length>=2 (so single-char noise like 'a' is skipped), lowercases everything, and dedupes preserving order. Numeric price tokens appended only when selling_price truthy — round(price,2) stringified plus rounded-int stringified. Correct semantics matching spec.",
+    "create_product (server.py:1075) unconditionally OVERWRITES doc['keywords'] with _auto_keywords output AFTER model_dump, so any client-supplied keywords are discarded — confirmed by test_client_keywords_are_discarded. ProductCreate.keywords field is still accepted on the schema but effectively unused; consider removing from ProductCreate to make the API contract clearer (non-blocker, no impact).",
+    "update_product (server.py:1098) recomputes keywords only when name/company/selling_price/category_id appears in the update payload. Uses a {**existing, **upd} merge before recompute so partial updates use the current persisted value for missing fields — correct. Verified by test_not_recomputed_on_unrelated_change.",
+    "Numeric-token edge case: for selling_price=0 (or None), the `if selling_price:` guard correctly skips appending numeric tokens — verified by test_zero_price_no_numeric_tokens. For very small floats >0 like 0.5, rounded int is '0' (kept; OK since input was nonzero) and decimal form '0.5' — acceptable.",
+    "Shopping List endpoints (server.py:1190-1255): correctly use get_current_user (not require_admin) so all roles can read/write/patch as per spec; DELETE has role-aware ownership check (admin OR added_by==user['name']) and returns 204 idempotently when item missing (no 404) — matches spec exactly. product_name is correctly populated from product lookup at create time and cached on the item.",
+    "Shopping List DELETE uses item['added_by'] == user['name'] for ownership. This relies on `name` being unique across users — backend enforces this on registration. If two users could share a name (admin can rename via PATCH user without uniqueness check? — not part of this iteration's scope), ownership could be ambiguous. Flag for future hardening, non-blocker.",
+    "ShoppingListItemCreate.quantity defaults to 1 (float); the code coerces float(payload.quantity or 1) so 0 quantity would coerce to 1 due to `or 1` short-circuit on falsy 0 — likely fine for shopping context but worth noting. Spec doesn't require enforcing positive quantity.",
+    "Sort order on GET shopping-list uses .sort('created_at', -1) — string ISO timestamps sort lexicographically correctly when generated within the same timezone — verified by test_list_all_roles_and_sorted_desc.",
+    "Status filter ?status accepts arbitrary string (no enum validation at query layer); only Pydantic's PATCH model enforces 'pending'|'done'. If a client passes ?status=nonsense, the GET would return empty list silently rather than 422 — minor UX issue, not a spec violation.",
+    "MongoDB _id is consistently excluded from all reads ({\"_id\": 0} projection on find/find_one for shopping_list, products, taxonomies, etc.) — no leak risk.",
+    "Pydantic ShoppingListItem.product_name and product_id are Optional[str] = None — correctly serializes as null in JSON when absent."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_inventory_phase5.py (new — 27 tests for keyword auto-derivation + shopping list flows)",
+    "/app/backend/tests/test_inventory_phase3.py (updated 1 test: test_search_by_keyword now queries an auto-derived token since user-supplied keywords are discarded by design)"
+  ],
+  "success_rate": {"backend": "100% (111/111)", "frontend": "not tested (backend-only request)"},
+  "seed_data_creation": "Each test module provisions its own TEST_-prefixed isolated store via POST /api/stores; deletion cascades per-store data. test_inventory_phase5 adds two employees (TEST_kemp_* and TEST_kempB_*) to verify cross-user delete permissions on the shopping list. Search class uses its own dedicated store with 2 deterministic seeded products (Whole Milk by Dairy Co at $2.99; Sugar by Sweets Co at $1.00). All cleanup happens in fixture teardown.",
+  "retest_needed": false,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "BASE_URL env var: EXPO_PUBLIC_BACKEND_URL (must be exported before running pytest; .env not auto-loaded). New endpoints in this iteration: POST/GET/PATCH/DELETE /api/inventory/shopping-list. _auto_keywords lives at server.py:1033; called from create_product (always) and update_product (only when name/company/selling_price/category_id changes). User-supplied `keywords` on POST/PATCH product are silently discarded — main agent should remove the keywords input from the product form UI as per Phase 3 polish spec. delete_store cascade in server.py STILL does not cascade suppliers/taxonomies/products/shopping_list documents (carried over note from iter 4) — orphan inventory + shopping_list rows remain when a store is deleted. Not in scope of this iteration's spec but worth flagging for Phase 4 cleanup.",
+  "rca_of_issue": "N/A — all tests pass. No bugs found."
+}

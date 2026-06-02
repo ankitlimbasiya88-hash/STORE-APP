@@ -560,10 +560,12 @@ class TestProductSearch:
         assert names == ["Banana Bread", "Carrot Cake"]
 
     def test_search_by_keyword(self, admin_headers, search_store):
-        r = requests.get(f"{API}/inventory/products?store_id={search_store['id']}&q=dessert",
+        # User-supplied keywords are discarded (auto-derived). Auto-keywords for
+        # Banana Bread (price 4.99) include rounded price "5" — search via that.
+        r = requests.get(f"{API}/inventory/products?store_id={search_store['id']}&q=5",
                          headers=admin_headers, timeout=15)
         names = self._names(r.json())
-        assert names == ["Carrot Cake"]
+        assert "Banana Bread" in names
 
     def test_search_by_size(self, admin_headers, search_store):
         r = requests.get(f"{API}/inventory/products?store_id={search_store['id']}&q=500g",

@@ -16,6 +16,7 @@ import { router } from "expo-router";
 import { useSession } from "@/src/ctx/SessionProvider";
 import { colors, spacing, radius } from "@/src/theme/colors";
 import { AppIcon } from "@/src/components/AppIcon";
+import BarcodeView from "@/src/components/BarcodeView";
 import {
   Product, PurchasePriceEntry, Supplier, Taxonomy, sortPricesAsc, priceStats,
 } from "@/src/utils/inventory";
@@ -59,7 +60,6 @@ export default function ProductForm({ mode, initial, initialBarcode, onSaved }: 
   const [minDays, setMinDays] = useState(String(initial?.min_inventory_days || ""));
   const [maxDays, setMaxDays] = useState(String(initial?.max_inventory_days || ""));
   const [purchaseTypeIds, setPurchaseTypeIds] = useState<string[]>(initial?.purchase_type_ids || []);
-  const [keywords, setKeywords] = useState((initial?.keywords || []).join(", "));
 
   // Lookup data
   const [suppliers, setSuppliers] = useState<Supplier[]>([]);
@@ -228,7 +228,6 @@ export default function ProductForm({ mode, initial, initialBarcode, onSaved }: 
         min_inventory_days: Math.round(numField(minDays)),
         max_inventory_days: Math.round(numField(maxDays)),
         purchase_type_ids: purchaseTypeIds,
-        keywords: keywords.split(",").map((k) => k.trim()).filter(Boolean),
       };
 
       let saved: Product;
@@ -350,25 +349,14 @@ export default function ProductForm({ mode, initial, initialBarcode, onSaved }: 
                 </TouchableOpacity>
               )}
             </View>
-            <View style={[styles.barcodeImageRow, { marginTop: 10 }]}>
-              {barcodeImage ? (
-                <View style={styles.barcodeImageBox}>
-                  <Image source={{ uri: barcodeImage.startsWith("data:") ? barcodeImage : `data:image/jpeg;base64,${barcodeImage}` }} style={{ width: "100%", height: "100%" }} />
-                  {!readOnly && (
-                    <TouchableOpacity onPress={() => setBarcodeImage(null)} style={styles.imageRemove}>
-                      <AppIcon name="close" size={12} color="#fff" />
-                    </TouchableOpacity>
-                  )}
-                </View>
-              ) : (
-                <Text style={styles.subtle}>No barcode photo yet</Text>
-              )}
-              {!readOnly && !barcodeImage && (
-                <TouchableOpacity onPress={pickBarcodePhoto} style={styles.smallBtn}>
-                  <Text style={styles.smallBtnText}>Capture barcode photo</Text>
-                </TouchableOpacity>
-              )}
-            </View>
+            {barcode.trim() ? (
+              <View style={styles.barcodePreviewBox}>
+                <BarcodeView value={barcode.trim()} width={260} height={70} showText />
+                <Text style={styles.barcodePreviewHint}>Scannable barcode auto-generated from this value · saved with the product gallery</Text>
+              </View>
+            ) : (
+              <Text style={styles.subtle}>Enter or scan a barcode to auto-generate a scannable barcode image.</Text>
+            )}
           </Section>
 
           {/* Basics */}
@@ -396,9 +384,6 @@ export default function ProductForm({ mode, initial, initialBarcode, onSaved }: 
                 empty="No categories yet — add via Categories button"
                 editable={!readOnly}
               />
-            </Field>
-            <Field label="Keywords (comma-separated, helps search)">
-              <TextInput style={styles.input} placeholder="e.g. milk, dairy, breakfast" placeholderTextColor={colors.textLight} value={keywords} onChangeText={setKeywords} editable={!readOnly} />
             </Field>
           </Section>
 
@@ -669,6 +654,8 @@ const styles = StyleSheet.create({
 
   barcodeImageRow: { flexDirection: "row", alignItems: "center", gap: 10 },
   barcodeImageBox: { width: 120, height: 70, borderRadius: radius.sm, overflow: "hidden", backgroundColor: colors.surface, position: "relative" },
+  barcodePreviewBox: { backgroundColor: "#fff", borderWidth: 1, borderColor: colors.border, borderRadius: radius.sm, padding: spacing.sm, alignItems: "center", marginTop: 8 },
+  barcodePreviewHint: { fontSize: 11, color: colors.textMuted, fontStyle: "italic", marginTop: 6, textAlign: "center" },
 
   scanBtn: { paddingHorizontal: 16, justifyContent: "center", backgroundColor: colors.primary, borderRadius: radius.sm },
   scanBtnText: { color: "#fff", fontWeight: "700", fontSize: 13 },

@@ -39,11 +39,7 @@ export default function InventoryScreen() {
           <Text style={styles.btnLabel}>Back</Text>
         </TouchableOpacity>
         <Text style={styles.headerTitle}>Inventory</Text>
-        {isAdmin ? (
-          <TouchableOpacity testID="manage-btn" onPress={() => router.push("/(app)/inventory/suppliers" as any)} style={styles.iconBtn}>
-            <Text style={styles.btnLabel}>Suppliers</Text>
-          </TouchableOpacity>
-        ) : <View style={{ width: 80 }} />}
+        <View style={{ width: 80 }} />
       </View>
 
       {/* Tab Bar */}
@@ -153,7 +149,7 @@ const ProductsTab: React.FC<{ apiStore: any; isAdmin: boolean; scanned?: string 
 
       {/* Add product (admin) */}
       {isAdmin && (
-        <View style={{ flexDirection: "row", paddingHorizontal: spacing.md, gap: spacing.sm, marginBottom: spacing.sm }}>
+        <View style={{ flexDirection: "row", paddingHorizontal: spacing.md, gap: spacing.sm, marginBottom: spacing.sm, flexWrap: "wrap" }}>
           <TouchableOpacity
             testID="add-product-btn"
             style={styles.addBtn}
@@ -163,11 +159,18 @@ const ProductsTab: React.FC<{ apiStore: any; isAdmin: boolean; scanned?: string 
             <Text style={styles.addBtnText}>Add Product</Text>
           </TouchableOpacity>
           <TouchableOpacity
+            testID="suppliers-btn"
+            style={[styles.secondaryBtn]}
+            onPress={() => router.push("/(app)/inventory/suppliers" as any)}
+          >
+            <Text style={styles.secondaryBtnText}>Suppliers</Text>
+          </TouchableOpacity>
+          <TouchableOpacity
             testID="taxonomy-btn"
-            style={[styles.addBtn, { backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border }]}
+            style={[styles.secondaryBtn]}
             onPress={() => router.push("/(app)/inventory/taxonomy" as any)}
           >
-            <Text style={[styles.addBtnText, { color: colors.text }]}>Categories</Text>
+            <Text style={styles.secondaryBtnText}>Categories</Text>
           </TouchableOpacity>
         </View>
       )}
@@ -310,11 +313,17 @@ const styles = StyleSheet.create({
   searchSubmitText: { color: colors.text, fontWeight: "700", fontSize: 13 },
 
   addBtn: {
-    flex: 1, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 6,
-    paddingVertical: 10, paddingHorizontal: 14, borderRadius: radius.md,
+    flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 6,
+    paddingVertical: 10, paddingHorizontal: 16, borderRadius: radius.md,
     backgroundColor: colors.primary,
   },
   addBtnText: { color: "#fff", fontWeight: "700", fontSize: 13 },
+  secondaryBtn: {
+    paddingVertical: 10, paddingHorizontal: 14, borderRadius: radius.md,
+    backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border,
+    alignItems: "center", justifyContent: "center",
+  },
+  secondaryBtnText: { color: colors.text, fontWeight: "700", fontSize: 13 },
 
   productCard: {
     flexDirection: "row", alignItems: "center", gap: spacing.sm,

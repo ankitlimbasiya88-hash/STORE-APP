@@ -1030,10 +1030,36 @@ def _compute_avg_sales(avg: dict | AvgSales | None) -> dict:
     return {"quantity": qty, "period_days": days, "per_day": round(per_day, 4)}
 
 
+def _auto_keywords(name: str, company: str, selling_price: float, category_name: Optional[str] = None) -> List[str]:
+    """Build search keywords automatically from product attributes."""
+    parts: List[str] = []
+    for src in (name or "", company or "", category_name or ""):
+        for tok in re.split(r"[^A-Za-z0-9]+", src.lower()):
+            if tok and len(tok) >= 2 and tok not in parts:
+                parts.append(tok)
+    if selling_price:
+        parts.append(str(round(float(selling_price), 2)))
+        parts.append(str(int(round(float(selling_price)))))
+    # dedupe preserving order
+    seen = set()
+    out: List[str] = []
+    for p in parts:
+        if p not in seen:
+            seen.add(p)
+            out.append(p)
+    return out
+
+
+async def _category_name(store_id: str, category_id: Optional[str]) -> Optional[str]:
+    if not category_id:
+        return None
+    t = await db.taxonomies.find_one({"id": category_id, "store_id": store_id}, {"_id": 0, "name": 1})
+    return t["name"] if t else None
+
+
 @api_router.post("/inventory/products", response_model=Product, status_code=201)
 async def create_product(payload: ProductCreate, store_id: str = Query(...), user=Depends(require_admin)):
     await require_store_access(user, store_id)
-    # Unique barcode per store if provided
     if payload.barcode:
         dup = await db.products.find_one({"store_id": store_id, "barcode": payload.barcode.strip()})
         if dup:
@@ -1045,6 +1071,8 @@ async def create_product(payload: ProductCreate, store_id: str = Query(...), use
     doc["barcode"] = (payload.barcode or "").strip() or None
     doc["purchase_prices"] = []
     doc["avg_sales"] = _compute_avg_sales(payload.avg_sales)
+    cat = await _category_name(store_id, payload.category_id)
+    doc["keywords"] = _auto_keywords(payload.name, payload.company, payload.selling_price, cat)
     doc["created_at"] = now
     doc["updated_at"] = now
     await db.products.insert_one(dict(doc))
@@ -1057,7 +1085,6 @@ async def update_product(pid: str, payload: ProductUpdate, store_id: str = Query
     upd = {k: v for k, v in payload.model_dump(exclude_unset=True).items() if v is not None}
     if not upd:
         raise HTTPException(status_code=400, detail="Nothing to update")
-    # Barcode uniqueness when changing
     if "barcode" in upd and upd["barcode"]:
         upd["barcode"] = upd["barcode"].strip()
         dup = await db.products.find_one({
@@ -1067,6 +1094,13 @@ async def update_product(pid: str, payload: ProductUpdate, store_id: str = Query
             raise HTTPException(status_code=409, detail="A product with this barcode already exists")
     if "avg_sales" in upd:
         upd["avg_sales"] = _compute_avg_sales(upd["avg_sales"])
+    # Always recompute keywords when name/company/selling_price/category changes
+    if any(k in upd for k in ("name", "company", "selling_price", "category_id")):
+        existing = await db.products.find_one({"id": pid, "store_id": store_id}, {"_id": 0})
+        if existing:
+            merged = {**existing, **upd}
+            cat = await _category_name(store_id, merged.get("category_id"))
+            upd["keywords"] = _auto_keywords(merged.get("name", ""), merged.get("company", ""), merged.get("selling_price", 0), cat)
     upd["updated_at"] = datetime.now(timezone.utc).isoformat()
     res = await db.products.update_one({"id": pid, "store_id": store_id}, {"$set": upd})
     if res.matched_count == 0:
@@ -1121,6 +1155,104 @@ async def delete_purchase_price(pid: str, entry_id: str, store_id: str = Query(.
         raise HTTPException(status_code=404, detail="Product not found")
     p = await db.products.find_one({"id": pid}, {"_id": 0})
     return Product(**p)
+
+
+# ---------- Shopping List ----------
+
+class ShoppingListItemCreate(BaseModel):
+    product_id: Optional[str] = None
+    text: str = ""
+    quantity: float = 1
+    note: str = ""
+
+
+class ShoppingListItemUpdate(BaseModel):
+    text: Optional[str] = None
+    quantity: Optional[float] = None
+    note: Optional[str] = None
+    status: Optional[Literal["pending", "done"]] = None
+
+
+class ShoppingListItem(BaseModel):
+    id: str
+    store_id: str
+    product_id: Optional[str] = None
+    product_name: Optional[str] = None
+    text: str = ""
+    quantity: float = 1
+    note: str = ""
+    status: str = "pending"  # pending | done
+    added_by: str
+    created_at: str
+    updated_at: str
+
+
+@api_router.get("/inventory/shopping-list", response_model=List[ShoppingListItem])
+async def list_shopping_items(store_id: str = Query(...), status: Optional[str] = None, user=Depends(get_current_user)):
+    await require_store_access(user, store_id)
+    flt: dict = {"store_id": store_id}
+    if status:
+        flt["status"] = status
+    out: List[dict] = []
+    async for it in db.shopping_list.find(flt, {"_id": 0}).sort("created_at", -1):
+        out.append(it)
+    return out
+
+
+@api_router.post("/inventory/shopping-list", response_model=ShoppingListItem, status_code=201)
+async def create_shopping_item(payload: ShoppingListItemCreate, store_id: str = Query(...), user=Depends(get_current_user)):
+    await require_store_access(user, store_id)
+    if not payload.product_id and not (payload.text or "").strip():
+        raise HTTPException(status_code=400, detail="Provide a product_id or text")
+    product_name: Optional[str] = None
+    if payload.product_id:
+        p = await db.products.find_one({"id": payload.product_id, "store_id": store_id}, {"_id": 0, "name": 1})
+        if not p:
+            raise HTTPException(status_code=404, detail="Product not found")
+        product_name = p["name"]
+    now = datetime.now(timezone.utc).isoformat()
+    doc = {
+        "id": str(uuid.uuid4()),
+        "store_id": store_id,
+        "product_id": payload.product_id,
+        "product_name": product_name,
+        "text": (payload.text or "").strip(),
+        "quantity": float(payload.quantity or 1),
+        "note": payload.note or "",
+        "status": "pending",
+        "added_by": user["name"],
+        "created_at": now,
+        "updated_at": now,
+    }
+    await db.shopping_list.insert_one(dict(doc))
+    return ShoppingListItem(**doc)
+
+
+@api_router.patch("/inventory/shopping-list/{iid}", response_model=ShoppingListItem)
+async def update_shopping_item(iid: str, payload: ShoppingListItemUpdate, store_id: str = Query(...), user=Depends(get_current_user)):
+    await require_store_access(user, store_id)
+    upd = {k: v for k, v in payload.model_dump(exclude_unset=True).items() if v is not None}
+    if not upd:
+        raise HTTPException(status_code=400, detail="Nothing to update")
+    upd["updated_at"] = datetime.now(timezone.utc).isoformat()
+    res = await db.shopping_list.update_one({"id": iid, "store_id": store_id}, {"$set": upd})
+    if res.matched_count == 0:
+        raise HTTPException(status_code=404, detail="Item not found")
+    doc = await db.shopping_list.find_one({"id": iid}, {"_id": 0})
+    return ShoppingListItem(**doc)
+
+
+@api_router.delete("/inventory/shopping-list/{iid}", status_code=204)
+async def delete_shopping_item(iid: str, store_id: str = Query(...), user=Depends(get_current_user)):
+    await require_store_access(user, store_id)
+    # Employees can only delete their own items; admin can delete any
+    item = await db.shopping_list.find_one({"id": iid, "store_id": store_id})
+    if not item:
+        return Response(status_code=204)
+    if user["role"] != "admin" and item.get("added_by") != user["name"]:
+        raise HTTPException(status_code=403, detail="Only the admin or the original adder can delete this item")
+    await db.shopping_list.delete_one({"id": iid, "store_id": store_id})
+    return Response(status_code=204)
 
 
 # ============ Chat ============

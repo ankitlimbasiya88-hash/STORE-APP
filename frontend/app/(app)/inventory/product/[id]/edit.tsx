@@ -8,7 +8,7 @@ import { colors } from "@/src/theme/colors";
 import ProductForm from "@/src/components/inventory/ProductForm";
 import { Product } from "@/src/utils/inventory";
 
-export default function ProductDetailScreen() {
+export default function EditProductScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const { apiStore } = useSession();
   const [product, setProduct] = useState<Product | null>(null);
@@ -17,7 +17,6 @@ export default function ProductDetailScreen() {
 
   const load = useCallback(async () => {
     setLoading(true);
-    setError(null);
     try {
       const p = await apiStore<Product>(`/api/inventory/products/${id}`);
       setProduct(p);
@@ -48,10 +47,7 @@ export default function ProductDetailScreen() {
     <ProductForm
       mode="edit"
       initial={product}
-      onSaved={(p) => {
-        setProduct(p);
-        router.back();
-      }}
+      onSaved={(p) => { setProduct(p); router.back(); }}
     />
   );
 }
