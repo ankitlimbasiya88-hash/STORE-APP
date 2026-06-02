@@ -7,7 +7,7 @@ import json
 import logging
 
 from core.db import db
-from core.deps import get_current_user, decode_token
+from core.deps import get_current_user, decode_token, require_store_access
 
 router = APIRouter()
 api_router = router

@@ -88,6 +88,8 @@ export const AppIcon: React.FC<Props> = ({ name, size = 20, color = "#0F172A", w
       return <Filter size={size} color={color} stroke={stroke} />;
     case "cart":
       return <Cart size={size} color={color} stroke={stroke} />;
+    case "chart":
+      return <Chart size={size} color={color} stroke={stroke} />;
 
     default:
       return null;
@@ -385,6 +387,17 @@ const Cart: React.FC<{ size: number; color: string; stroke: number }> = ({ size,
     <View style={{ position: "absolute", bottom: size * 0.04, right: size * 0.12, width: size * 0.16, height: size * 0.16, borderRadius: size, borderWidth: stroke, borderColor: color }} />
   </View>
 );
+
+const Chart: React.FC<{ size: number; color: string; stroke: number }> = ({ size, color, stroke }) => (
+  <View style={[styles.glyphBox, { width: size, height: size }]}>
+    <View style={{ position: "absolute", bottom: size * 0.1, left: size * 0.08, right: size * 0.08, height: stroke, backgroundColor: color, borderRadius: stroke / 2 }} />
+    <View style={{ position: "absolute", top: size * 0.1, bottom: size * 0.1, left: size * 0.08, width: stroke, backgroundColor: color, borderRadius: stroke / 2 }} />
+    <View style={{ position: "absolute", left: size * 0.22, bottom: size * 0.13, width: size * 0.13, height: size * 0.3, backgroundColor: color, borderRadius: 1 }} />
+    <View style={{ position: "absolute", left: size * 0.42, bottom: size * 0.13, width: size * 0.13, height: size * 0.55, backgroundColor: color, borderRadius: 1 }} />
+    <View style={{ position: "absolute", left: size * 0.62, bottom: size * 0.13, width: size * 0.13, height: size * 0.4, backgroundColor: color, borderRadius: 1 }} />
+  </View>
+);
+
 
 const styles = StyleSheet.create({
   glyphBox: { alignItems: "center", justifyContent: "center" },

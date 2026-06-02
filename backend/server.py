@@ -8,7 +8,7 @@ from starlette.middleware.cors import CORSMiddleware
 
 from core.db import client, db
 from core.deps import hash_pin
-from routes import auth, stores, checklists, accounting, chat, inventory
+from routes import auth, stores, checklists, accounting, chat, inventory, reports
 
 
 app = FastAPI(
@@ -29,6 +29,7 @@ api_router.include_router(checklists.router)
 api_router.include_router(accounting.router)
 api_router.include_router(inventory.router)
 api_router.include_router(chat.router)  # /api/chat/messages
+api_router.include_router(reports.router)
 app.include_router(api_router)
 
 # WebSocket is registered directly on the app — it needs a non-/api prefix

@@ -14,7 +14,8 @@ const FUNCTIONS: Array<{
   { key: "accounting", title: "Cash Accounting", desc: "Daily credit & debit", icon: "calculator", appIcon: "cash", color: colors.primary, bg: "#DBEAFE", route: "/(app)/operations/accounting" as const },
   { key: "closing", title: "Closing Checklist", desc: "End-of-day tasks", icon: "moon", appIcon: "moon", color: "#7C3AED", bg: "#EDE9FE", route: "/(app)/operations/closing" as const },
   { key: "chat", title: "Chat", desc: "Team conversations", icon: "chatbubbles", color: colors.success, bg: "#DCFCE7", route: "/(app)/operations/chat" as const },
-  { key: "reports", title: "Reports", desc: "Historical reports & PDFs", icon: "document-text", appIcon: "download", color: "#0EA5E9", bg: "#E0F2FE", route: "/(app)/operations/reports" as const },
+  { key: "reports", title: "Daily Report", desc: "Day-by-day accounting & checklist PDFs", icon: "document-text", appIcon: "download", color: "#0EA5E9", bg: "#E0F2FE", route: "/(app)/operations/reports" as const },
+  { key: "summary", title: "Reports Dashboard", desc: "Spend & cash analytics by period", icon: "bar-chart", appIcon: "chart", color: "#10B981", bg: "#D1FAE5", route: "/(app)/operations/summary" as const },
 ];
 
 export default function OperationsScreen() {
