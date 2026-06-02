@@ -3,7 +3,7 @@ import {
   View, Text, StyleSheet, TouchableOpacity, ScrollView, TextInput, FlatList,
   ActivityIndicator, RefreshControl, Alert, Image, Platform,
 } from "react-native";
-import { SafeAreaView } from "react-native-safe-area-context";
+import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import { router, useFocusEffect, useLocalSearchParams } from "expo-router";
 
 import { useSession } from "@/src/ctx/SessionProvider";
@@ -77,12 +77,15 @@ type StockRow = {
 };
 
 const InventoryTab: React.FC<{ apiStore: any; isAdmin: boolean; scanned?: string }> = ({ apiStore, isAdmin, scanned }) => {
+  const insets = useSafeAreaInsets();
   const [rows, setRows] = useState<StockRow[]>([]);
   const [products, setProducts] = useState<ProductListItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [query, setQuery] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [resetting, setResetting] = useState(false);
+  // Per-product input draft so typing isn't interrupted by network round-trips
+  const [drafts, setDrafts] = useState<Record<string, string>>({});
   const handledScanRef = React.useRef<string | null>(null);
 
   const load = useCallback(async () => {
@@ -213,7 +216,7 @@ const InventoryTab: React.FC<{ apiStore: any; isAdmin: boolean; scanned?: string
       <FlatList
         data={filtered}
         keyExtractor={(p) => p.id}
-        contentContainerStyle={{ paddingHorizontal: spacing.md, paddingBottom: 80 }}
+        contentContainerStyle={{ paddingHorizontal: spacing.md, paddingBottom: 100 + (insets.bottom || 0) }}
         ItemSeparatorComponent={() => <View style={{ height: 6 }} />}
         ListEmptyComponent={() => (
           <View style={styles.emptyState}>
@@ -223,6 +226,7 @@ const InventoryTab: React.FC<{ apiStore: any; isAdmin: boolean; scanned?: string
         )}
         renderItem={({ item }) => {
           const qty = countByPid[item.id] || 0;
+          const draftVal = drafts[item.id] !== undefined ? drafts[item.id] : String(qty);
           return (
             <View style={styles.stockCard}>
               <View style={{ flex: 1, minWidth: 0 }}>
@@ -234,19 +238,39 @@ const InventoryTab: React.FC<{ apiStore: any; isAdmin: boolean; scanned?: string
                 ) : null}
               </View>
               <View style={styles.qtyRow}>
-                <TouchableOpacity onPress={() => increment(item.id, -1)} style={styles.qtyBtn}>
+                <TouchableOpacity
+                  onPress={() => {
+                    setDrafts((d) => { const c = { ...d }; delete c[item.id]; return c; });
+                    increment(item.id, -1);
+                  }}
+                  style={styles.qtyBtn}
+                >
                   <Text style={styles.qtyBtnText}>−</Text>
                 </TouchableOpacity>
                 <TextInput
                   style={styles.qtyInput}
-                  value={String(qty)}
+                  value={draftVal}
                   keyboardType="decimal-pad"
+                  selectTextOnFocus
                   onChangeText={(v) => {
-                    const n = parseFloat(v.replace(/[^0-9.]/g, "")) || 0;
-                    setQuantity(item.id, n);
+                    // keep typed value locally; don't call API on every keystroke
+                    setDrafts((d) => ({ ...d, [item.id]: v.replace(/[^0-9.]/g, "") }));
+                  }}
+                  onBlur={() => {
+                    const txt = drafts[item.id];
+                    if (txt === undefined) return; // nothing changed
+                    const n = parseFloat(txt) || 0;
+                    setDrafts((d) => { const c = { ...d }; delete c[item.id]; return c; });
+                    if (n !== qty) setQuantity(item.id, n);
                   }}
                 />
-                <TouchableOpacity onPress={() => increment(item.id, 1)} style={styles.qtyBtn}>
+                <TouchableOpacity
+                  onPress={() => {
+                    setDrafts((d) => { const c = { ...d }; delete c[item.id]; return c; });
+                    increment(item.id, 1);
+                  }}
+                  style={styles.qtyBtn}
+                >
                   <Text style={styles.qtyBtnText}>+</Text>
                 </TouchableOpacity>
               </View>
@@ -256,7 +280,7 @@ const InventoryTab: React.FC<{ apiStore: any; isAdmin: boolean; scanned?: string
       />
 
       {isAdmin && (
-        <View style={styles.submitBar}>
+        <View style={[styles.submitBar, { paddingBottom: spacing.md + (insets.bottom || 0) }]}>
           <TouchableOpacity onPress={submit} disabled={submitting} style={styles.submitBtn}>
             {submitting ? <ActivityIndicator color="#fff" /> : <Text style={styles.submitBtnText}>Submit Inventory → generate orders</Text>}
           </TouchableOpacity>
