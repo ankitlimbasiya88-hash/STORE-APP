@@ -22,34 +22,23 @@ type Props = {
   format?: "CODE128" | "EAN13" | "EAN8" | "UPC" | "CODE39" | "auto";
 };
 
-/** Choose the right encoder class based on value length / characters.
- * Important: EAN/UPC formats validate check digits, so a user-entered code
- * like "1234567890123" will fail validation. We only auto-pick EAN/UPC when
- * the value already has a valid check digit; otherwise we fall back to
- * Code128 which accepts any printable ASCII and is universally scannable. */
+/** Choose the right encoder. CODE128 works with any printable ASCII and is
+ *  universally scannable on POS hardware — perfect default. For EAN/UPC formats
+ *  jsbarcode needs extra options (flat/displayValue/etc.), so we only switch to
+ *  them when the caller explicitly requests it AND supplies a valid check digit. */
+const UPC_OPTS = { flat: true, displayValue: false, fontSize: 10, width: 2, height: 100, textMargin: 2, font: "monospace", textAlign: "center", textPosition: "bottom", background: "#fff", lineColor: "#000" };
+
 function pickEncoder(value: string, format: Props["format"]) {
   const v = (value || "").trim();
-  // Explicit format requested
-  if (format === "EAN13") return new barcodes.EAN13(v, {});
-  if (format === "EAN8") return new barcodes.EAN8(v, {});
-  if (format === "UPC") return new barcodes.UPC(v, {});
+  // Explicit format requested by caller
+  if (format === "EAN13") return new barcodes.EAN13(v, UPC_OPTS);
+  if (format === "EAN8") return new barcodes.EAN8(v, UPC_OPTS);
+  if (format === "UPC") return new barcodes.UPC(v, UPC_OPTS);
   if (format === "CODE39") return new barcodes.CODE39(v, { mod43: false });
   if (format === "CODE128") return new barcodes.CODE128(v, {});
 
-  // Auto: try retail formats but only keep them if check digit validates.
-  // Otherwise fall back to Code128 which accepts ANY value.
-  if (/^\d{13}$/.test(v)) {
-    const e = new barcodes.EAN13(v, {});
-    if (e.valid()) return e;
-  }
-  if (/^\d{12}$/.test(v)) {
-    const e = new barcodes.UPC(v, {});
-    if (e.valid()) return e;
-  }
-  if (/^\d{8}$/.test(v)) {
-    const e = new barcodes.EAN8(v, {});
-    if (e.valid()) return e;
-  }
+  // Auto: CODE128 is the safest default — encodes anything, no extra options
+  // needed, and every modern POS scanner reads it.
   return new barcodes.CODE128(v, {});
 }
 
