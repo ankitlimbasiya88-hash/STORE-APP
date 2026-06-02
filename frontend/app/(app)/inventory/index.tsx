@@ -229,7 +229,7 @@ const ShoppingListTab: React.FC<{ apiStore: any; isAdmin: boolean; storeName: st
       <FlatList
         data={filtered}
         keyExtractor={(i) => i.id}
-        contentContainerStyle={{ paddingHorizontal: spacing.md, paddingBottom: 40 + (insets.bottom || 0) }}
+        contentContainerStyle={{ paddingHorizontal: spacing.md, paddingBottom: 100 + (insets.bottom || 0) }}
         ItemSeparatorComponent={() => <View style={{ height: 6 }} />}
         ListEmptyComponent={() => (
           <View style={styles.emptyState}>
@@ -246,6 +246,13 @@ const ShoppingListTab: React.FC<{ apiStore: any; isAdmin: boolean; storeName: st
           />
         )}
       />
+
+      {/* Save / refresh bar */}
+      <View style={[styles.submitBar, { paddingBottom: spacing.md + (insets.bottom || 0) }]}>
+        <TouchableOpacity onPress={loadItems} style={styles.submitBtn}>
+          <Text style={styles.submitBtnText}>Save & refresh</Text>
+        </TouchableOpacity>
+      </View>
 
       {/* Supplier menu */}
       <Modal visible={supplierMenuOpen} transparent animationType="fade" onRequestClose={() => setSupplierMenuOpen(false)}>
@@ -312,10 +319,10 @@ const ShoppingItemRow: React.FC<{ item: ShoppingItem; suppliers: SupplierLite[];
         <View style={{ flexDirection: "row", gap: 8, marginTop: 6, flexWrap: "wrap", alignItems: "center" }}>
           <TextInput
             style={[styles.qtyInput, { width: 60 }]}
-            keyboardType="decimal-pad"
+            keyboardType="number-pad"
             value={qty}
-            onChangeText={setQty}
-            onBlur={() => { const n = parseFloat(qty) || 0; if (n !== item.quantity) onUpdate(item.id, { quantity: n }); }}
+            onChangeText={(v) => setQty(v.replace(/[^0-9]/g, ""))}
+            onBlur={() => { const n = parseInt(qty || "0", 10) || 0; if (n !== item.quantity) onUpdate(item.id, { quantity: n }); }}
           />
           <TouchableOpacity style={[styles.chip, { backgroundColor: colors.surface }]} onPress={() => setSupOpen(true)}>
             <Text style={styles.chipText}>{sup?.name || "Supplier"}</Text>
@@ -925,4 +932,12 @@ const styles = StyleSheet.create({
   },
   submitBtn: { backgroundColor: colors.primary, padding: 14, borderRadius: radius.md, alignItems: "center" },
   submitBtnText: { color: "#fff", fontWeight: "700", fontSize: 14 },
+
+  // Shared modal styles
+  modalBack: { flex: 1, backgroundColor: "rgba(0,0,0,0.6)", justifyContent: "center", alignItems: "center", padding: spacing.lg },
+  modalBox: { width: "100%", maxWidth: 420, backgroundColor: colors.card, padding: spacing.lg, borderRadius: radius.lg, gap: spacing.sm, maxHeight: "75%" },
+  modalTitle: { fontSize: 17, fontWeight: "700", color: colors.text, marginBottom: 8 },
+  optRow: { paddingVertical: 12, paddingHorizontal: 12, borderRadius: radius.sm, borderBottomWidth: 1, borderBottomColor: colors.border },
+  chip: { paddingHorizontal: 10, paddingVertical: 6, borderRadius: 14, borderWidth: 1, borderColor: colors.border },
+  chipText: { color: colors.text, fontWeight: "600", fontSize: 12 },
 });

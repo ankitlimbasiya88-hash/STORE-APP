@@ -1339,7 +1339,7 @@ async def create_shopping_item(payload: ShoppingListItemCreate, store_id: str = 
 @api_router.patch("/inventory/shopping-list/{iid}", response_model=ShoppingListItem)
 async def update_shopping_item(iid: str, payload: ShoppingListItemUpdate, store_id: str = Query(...), user=Depends(get_current_user)):
     await require_store_access(user, store_id)
-    upd = {k: v for k, v in payload.model_dump(exclude_unset=True).items() if v is not None}
+    upd = payload.model_dump(exclude_unset=True)  # keep None values too (for clearing)
     if not upd:
         raise HTTPException(status_code=400, detail="Nothing to update")
     upd["updated_at"] = datetime.now(timezone.utc).isoformat()
