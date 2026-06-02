@@ -1247,7 +1247,7 @@ class ShoppingListItemCreate(BaseModel):
     quantity: float = 1
     note: str = ""
     supplier_id: Optional[str] = None
-    purchase_price_type: Optional[Literal["regular", "deal"]] = None
+    purchase_price_type: Optional[Literal["regular", "deal", "both"]] = None
     purchase_price: Optional[float] = None
 
 
@@ -1257,7 +1257,7 @@ class ShoppingListItemUpdate(BaseModel):
     note: Optional[str] = None
     status: Optional[Literal["pending", "done"]] = None
     supplier_id: Optional[str] = None
-    purchase_price_type: Optional[Literal["regular", "deal"]] = None
+    purchase_price_type: Optional[Literal["regular", "deal", "both"]] = None
     purchase_price: Optional[float] = None
 
 
@@ -1317,8 +1317,7 @@ async def create_shopping_item(payload: ShoppingListItemCreate, store_id: str = 
             raise HTTPException(status_code=404, detail="Product not found")
         product_name = p["name"]
         if purchase_price_type is None:
-            ppt = p.get("purchase_price_type", "regular")
-            purchase_price_type = "regular" if ppt in ("regular", "both") else "deal"
+            purchase_price_type = p.get("purchase_price_type", "regular")
     now = datetime.now(timezone.utc).isoformat()
     doc = {
         "id": str(uuid.uuid4()), "store_id": store_id, "list_id": list_id,
@@ -1471,7 +1470,7 @@ async def submit_stock(store_id: str = Query(...), user=Depends(get_current_user
         existing = await db.shopping_list.find_one({
             "store_id": store_id, "list_id": cont["id"], "product_id": s["product_id"], "status": "pending",
         })
-        ppt = "regular" if s["purchase_price_type"] in ("regular", "both") else "deal"
+        ppt = s["purchase_price_type"] if s["purchase_price_type"] in ("regular", "deal", "both") else "regular"
         if existing:
             await db.shopping_list.update_one(
                 {"id": existing["id"]},

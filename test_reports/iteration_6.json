@@ -1,0 +1,40 @@
+{
+  "summary": "Iteration 6 backend-only test for Phase 3 Shopping List 'both' purchase_price_type (PPT) extension. Result: 40/40 PASS (13 new + 27 regression). Validated all 6 scoped behaviors: (1) POST /api/inventory/shopping-list with body {text, qty, purchase_price_type:'both', purchase_price:4.5} returns 201 and item.purchase_price_type=='both'; both 'regular' and 'deal' still accepted as regressions. (2) POST with product_id of a product whose PPT='both' and NO purchase_price_type in payload now inherits 'both' VERBATIM — previous coercion to regular/deal is fixed (server.py:1319-1320). Explicit payload PPT still wins over product PPT. Sanity: regular product still inherits 'regular'. (3) PATCH /api/inventory/shopping-list/{id} with {purchase_price_type:'both'} returns 200 and item.purchase_price_type=='both'. (4) POST /api/inventory/stock/submit with a product configured (avg_sales.quantity=10/period_days=5 -> per_day=2, max_inventory_days=7, PPT='both') and on-hand set to 0 via /api/inventory/stock/set, creates a NEW continuous-list entry with purchase_price_type=='both' and quantity==14.0 (server.py:1473,1486). (5) Regression smoke: POST/GET/DELETE /api/inventory/shopping-lists; GET /api/inventory/shopping-list; GET suppliers/categories/products endpoints — all 200. Full prior phase 5 suite (27 tests) re-run green. (6) Invalid PPT 'super-deal' returns 422 on both POST and PATCH (Literal validation enforced).",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [],
+    "react_native_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_shopping_list_both_ppt.py",
+    "/app/test_reports/pytest/iter6_both_ppt.xml",
+    "/app/test_reports/pytest/iter6_phase5_regression.xml"
+  ],
+  "action_items": [
+    "No backend blockers. Phase 3 'both' PPT extension is verified end-to-end across create/patch/inherit/submit paths. Main agent may proceed with frontend integration (e.g., expose 'both' in the PPT picker in Shopping List screens and product form).",
+    "Reminder (carried over from iter 5): server.py is now ~1637 lines (was ~1401), still well past the 700-line split threshold. Consider splitting into routers/{stores,auth,users,checklists,accounting,inventory,chat}.py — non-blocker but tech debt continues to accumulate."
+  ],
+  "critical_code_review_comments": [
+    "ShoppingListItemCreate.purchase_price_type (server.py:1250) and ShoppingListItemUpdate.purchase_price_type (server.py:1260) are Optional[Literal['regular','deal','both']]. Pydantic correctly rejects unknown values with 422 — verified.",
+    "create_shopping_item (server.py:1313-1320) sets `purchase_price_type = payload.purchase_price_type` and ONLY falls back to product's PPT (verbatim, including 'both') when payload omits it AND a product_id is provided. The earlier coercion to {regular,deal} has been removed — verified by test_inherits_both_when_not_provided. The product fallback `p.get('purchase_price_type', 'regular')` is safe for legacy products without the field.",
+    "submit_stock (server.py:1465,1473,1486): suggestions include the product's PPT verbatim; line 1473 has a defensive `if s['purchase_price_type'] in ('regular','deal','both') else 'regular'` guard — belt-and-suspenders since Pydantic already enforces this at create/update time. New-insert branch (line 1486) writes ppt verbatim — verified 'both' is preserved by test_submit_creates_continuous_entry_with_both.",
+    "submit_stock existing-entry branch (server.py:1478) uses `existing.get('purchase_price_type') or ppt`. This means an existing entry's PPT is preserved on re-submit; only when existing.PPT is None/empty does the product's current PPT take over. Acceptable semantics (user edits stick) but worth being aware of: if user creates a manual entry with PPT='regular' for a product whose PPT later changes to 'both', the existing entry will NOT be auto-upgraded. Not a bug per spec, just documented.",
+    "ShoppingListItem (server.py:1275): the inline comment still says `# 'regular' | 'deal' | None` — outdated, should read `'regular' | 'deal' | 'both' | None`. Cosmetic only, no functional impact.",
+    "MongoDB _id is consistently excluded across all reads (verified via response shape in all 13 new tests).",
+    "Backend supervisor reloaded cleanly after the change (no startup errors in /var/log/supervisor/backend.err.log); all endpoints respond 200/201/204/422 as expected."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_shopping_list_both_ppt.py (NEW — 13 tests covering the entire 'both' PPT path: create text, inherit from product, patch, stock submit, regression smoke, and 422 validation)"
+  ],
+  "success_rate": {"backend": "100% (40/40 — 13 new + 27 phase5 regression)", "frontend": "not tested (backend-only request)"},
+  "seed_data_creation": "test_shopping_list_both_ppt.py provisions one TEST_BothPPT_* store via POST /api/stores and tears it down in fixture teardown (cascades store data). Each test that needs a 'both'-PPT product creates a fresh TEST_BothProd_* / TEST_SubmitBoth_* product in that store. No cross-test pollution. Phase 5 fixtures unchanged.",
+  "retest_needed": false,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "BASE_URL env var: EXPO_PUBLIC_BACKEND_URL (must be exported before running pytest; .env not auto-loaded). New endpoint behavior verified in this iteration: Literal['regular','deal','both'] now accepted for both ShoppingListItemCreate.purchase_price_type and ShoppingListItemUpdate.purchase_price_type; create_shopping_item inherits product PPT verbatim including 'both'; submit_stock preserves 'both' on new continuous-list entries. Total backend suite is now: phase3 (test_inventory_phase3.py) + phase5 (test_inventory_phase5.py, 27) + auth/accounting suites + new test_shopping_list_both_ppt.py (13). Carried-over note from iter 5: delete_store cascade still does not cascade suppliers/taxonomies/products/shopping_list docs — orphan rows remain.",
+  "rca_of_issue": "N/A — all tests pass. The change extending Literal from ['regular','deal'] to ['regular','deal','both'] is correctly implemented at the schema layer (lines 1250, 1260, 772, 794), in the create path with verbatim product inheritance (lines 1313-1320), and in submit_stock for new entries (lines 1465-1486). No coercion to 'regular'/'deal' anymore."
+}

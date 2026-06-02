@@ -72,7 +72,7 @@ type ShoppingItem = {
   product_id?: string | null; product_name?: string | null;
   text: string; quantity: number; note: string; status: string;
   supplier_id?: string | null;
-  purchase_price_type?: "regular" | "deal" | null;
+  purchase_price_type?: "regular" | "deal" | "both" | null;
   purchase_price?: number | null;
   source: string; added_by: string;
 };
@@ -84,6 +84,7 @@ const ShoppingListTab: React.FC<{ apiStore: any; isAdmin: boolean; storeName: st
   const [activeListId, setActiveListId] = useState<string | null>(null);
   const [items, setItems] = useState<ShoppingItem[]>([]);
   const [suppliers, setSuppliers] = useState<SupplierLite[]>([]);
+  const [productThumbs, setProductThumbs] = useState<Record<string, string | null>>({});
   const [loading, setLoading] = useState(true);
   const [supplierFilter, setSupplierFilter] = useState<string | null>(null);
   const [supplierMenuOpen, setSupplierMenuOpen] = useState(false);
@@ -93,11 +94,15 @@ const ShoppingListTab: React.FC<{ apiStore: any; isAdmin: boolean; storeName: st
 
   const load = useCallback(async () => {
     try {
-      const [ls, sup] = await Promise.all([
+      const [ls, sup, plist] = await Promise.all([
         apiStore<ShoppingList[]>("/api/inventory/shopping-lists"),
         apiStore<SupplierLite[]>("/api/inventory/suppliers"),
+        apiStore<ProductListItem[]>("/api/inventory/products?limit=500"),
       ]);
       setLists(ls); setSuppliers(sup);
+      const thumbs: Record<string, string | null> = {};
+      plist.forEach((p: any) => { thumbs[p.id] = p.thumbnail || null; });
+      setProductThumbs(thumbs);
       if (!activeListId && ls.length > 0) setActiveListId(ls[0].id);
     } catch (e: any) { Alert.alert("Error", e.message); }
     finally { setLoading(false); }
@@ -241,6 +246,7 @@ const ShoppingListTab: React.FC<{ apiStore: any; isAdmin: boolean; storeName: st
           <ShoppingItemRow
             item={item}
             suppliers={suppliers}
+            thumbnail={item.product_id ? productThumbs[item.product_id] || null : null}
             onUpdate={updateItem}
             onDelete={() => deleteItem(item.id)}
           />
@@ -297,14 +303,22 @@ const ShoppingListTab: React.FC<{ apiStore: any; isAdmin: boolean; storeName: st
   );
 };
 
-const ShoppingItemRow: React.FC<{ item: ShoppingItem; suppliers: SupplierLite[]; onUpdate: (iid: string, patch: Partial<ShoppingItem>) => void; onDelete: () => void }> = ({ item, suppliers, onUpdate, onDelete }) => {
+const ShoppingItemRow: React.FC<{
+  item: ShoppingItem;
+  suppliers: SupplierLite[];
+  thumbnail?: string | null;
+  onUpdate: (iid: string, patch: Partial<ShoppingItem>) => void;
+  onDelete: () => void;
+}> = ({ item, suppliers, thumbnail, onUpdate, onDelete }) => {
   const [qty, setQty] = useState(String(item.quantity || ""));
   const [note, setNote] = useState(item.note || "");
   const [price, setPrice] = useState(item.purchase_price != null ? String(item.purchase_price) : "");
   const [supOpen, setSupOpen] = useState(false);
   const [ptOpen, setPtOpen] = useState(false);
   const sup = suppliers.find((s) => s.id === item.supplier_id);
-  const pt = item.purchase_price_type || "regular";
+  const pt = (item.purchase_price_type || "regular") as "regular" | "deal" | "both";
+  const ptLabel = pt === "deal" ? "Deal" : pt === "both" ? "Both" : "Regular";
+  const ptColor = pt === "deal" ? "#FEF3C7" : pt === "both" ? "#DBEAFE" : colors.surface;
 
   useEffect(() => {
     setQty(String(item.quantity || ""));
@@ -312,28 +326,62 @@ const ShoppingItemRow: React.FC<{ item: ShoppingItem; suppliers: SupplierLite[];
     setPrice(item.purchase_price != null ? String(item.purchase_price) : "");
   }, [item.quantity, item.note, item.purchase_price]);
 
+  const thumbUri = thumbnail ? (thumbnail.startsWith("data:") ? thumbnail : `data:image/jpeg;base64,${thumbnail}`) : null;
+
   return (
-    <View style={styles.stockCard}>
-      <View style={{ flex: 1, minWidth: 0 }}>
-        <Text style={styles.productName} numberOfLines={1}>{item.product_name || item.text}</Text>
-        <View style={{ flexDirection: "row", gap: 8, marginTop: 6, flexWrap: "wrap", alignItems: "center" }}>
+    <View style={styles.shopRowCard}>
+      <View style={styles.shopRowHeader}>
+        <View style={styles.shopThumbBox}>
+          {thumbUri ? (
+            <Image source={{ uri: thumbUri }} style={styles.shopThumbImg} />
+          ) : (
+            <Text style={styles.shopThumbInit}>{((item.product_name || item.text || "?")[0] || "?").toUpperCase()}</Text>
+          )}
+        </View>
+        <View style={{ flex: 1, minWidth: 0 }}>
+          <Text style={styles.productName} numberOfLines={2}>{item.product_name || item.text}</Text>
+        </View>
+        <TouchableOpacity onPress={onDelete} style={styles.trashBtn}>
+          <AppIcon name="trash" size={16} color={colors.danger} />
+        </TouchableOpacity>
+      </View>
+
+      {/* Row 1: Qty + Supplier */}
+      <View style={styles.shopFieldRow}>
+        <View style={styles.fieldGroup}>
+          <Text style={styles.fieldLabel}>Qty</Text>
           <TextInput
-            style={[styles.qtyInput, { width: 60 }]}
+            style={styles.smallInput}
             keyboardType="number-pad"
             value={qty}
             onChangeText={(v) => setQty(v.replace(/[^0-9]/g, ""))}
             onBlur={() => { const n = parseInt(qty || "0", 10) || 0; if (n !== item.quantity) onUpdate(item.id, { quantity: n }); }}
           />
-          <TouchableOpacity style={[styles.chip, { backgroundColor: colors.surface }]} onPress={() => setSupOpen(true)}>
-            <Text style={styles.chipText}>{sup?.name || "Supplier"}</Text>
+        </View>
+        <View style={[styles.fieldGroup, { flex: 1 }]}>
+          <Text style={styles.fieldLabel}>Supplier</Text>
+          <TouchableOpacity activeOpacity={0.7} style={styles.dropdownBtn} onPress={() => setSupOpen(true)}>
+            <Text style={styles.dropdownText} numberOfLines={1}>{sup?.name || "— Select —"}</Text>
+            <AppIcon name="down" size={12} color={colors.textMuted} />
           </TouchableOpacity>
-          <TouchableOpacity style={[styles.chip, { backgroundColor: pt === "deal" ? "#FEF3C7" : colors.surface }]} onPress={() => setPtOpen(true)}>
-            <Text style={styles.chipText}>{pt === "deal" ? "Deal" : "Regular"}</Text>
+        </View>
+      </View>
+
+      {/* Row 2: Price type + Price */}
+      <View style={styles.shopFieldRow}>
+        <View style={[styles.fieldGroup, { flex: 1 }]}>
+          <Text style={styles.fieldLabel}>Purchase Price Type</Text>
+          <TouchableOpacity activeOpacity={0.7} style={[styles.dropdownBtn, { backgroundColor: ptColor }]} onPress={() => setPtOpen(true)}>
+            <Text style={styles.dropdownText}>{ptLabel}</Text>
+            <AppIcon name="down" size={12} color={colors.textMuted} />
           </TouchableOpacity>
-          <View style={{ flexDirection: "row", alignItems: "center", backgroundColor: colors.surface, borderRadius: radius.sm, paddingHorizontal: 6, borderWidth: 1, borderColor: colors.border }}>
-            <Text style={{ color: colors.textMuted, fontSize: 12 }}>$</Text>
+        </View>
+        <View style={styles.fieldGroup}>
+          <Text style={styles.fieldLabel}>Price</Text>
+          <View style={styles.priceWrap}>
+            <Text style={styles.priceDollar}>$</Text>
             <TextInput
-              style={{ width: 60, paddingVertical: 6, fontSize: 13, color: colors.text, fontWeight: "600", textAlign: "right" }}
+              style={styles.priceInput}
               keyboardType="decimal-pad"
               placeholder="0.00"
               placeholderTextColor={colors.textLight}
@@ -343,25 +391,28 @@ const ShoppingItemRow: React.FC<{ item: ShoppingItem; suppliers: SupplierLite[];
             />
           </View>
         </View>
+      </View>
+
+      {/* Row 3: Notes */}
+      <View style={styles.fieldGroup}>
+        <Text style={styles.fieldLabel}>Notes</Text>
         <TextInput
-          style={[styles.qtyInput, { width: "100%", textAlign: "left", marginTop: 6, fontWeight: "400" }]}
-          placeholder="Note"
+          style={styles.notesInput}
+          placeholder="Add a note (deal terms, brand pref, etc.)"
           placeholderTextColor={colors.textLight}
           value={note}
           onChangeText={setNote}
           onBlur={() => { if (note !== item.note) onUpdate(item.id, { note }); }}
+          multiline
         />
       </View>
-      <TouchableOpacity onPress={onDelete} style={{ padding: 8 }}>
-        <AppIcon name="trash" size={16} color={colors.danger} />
-      </TouchableOpacity>
 
-      {/* Supplier picker */}
+      {/* Supplier picker modal */}
       <Modal visible={supOpen} transparent animationType="fade" onRequestClose={() => setSupOpen(false)}>
         <TouchableOpacity activeOpacity={1} style={styles.modalBack} onPress={() => setSupOpen(false)}>
-          <View style={[styles.modalBox, { maxHeight: "60%" }]}>
-            <Text style={styles.modalTitle}>Supplier</Text>
-            <ScrollView>
+          <TouchableOpacity activeOpacity={1} style={[styles.modalBox, { maxHeight: "60%" }]} onPress={() => { /* swallow */ }}>
+            <Text style={styles.modalTitle}>Choose supplier</Text>
+            <ScrollView keyboardShouldPersistTaps="always">
               <TouchableOpacity style={styles.optRow} onPress={() => { onUpdate(item.id, { supplier_id: null as any }); setSupOpen(false); }}>
                 <Text style={{ color: colors.textMuted }}>— None —</Text>
               </TouchableOpacity>
@@ -371,21 +422,27 @@ const ShoppingItemRow: React.FC<{ item: ShoppingItem; suppliers: SupplierLite[];
                 </TouchableOpacity>
               ))}
             </ScrollView>
-          </View>
+          </TouchableOpacity>
         </TouchableOpacity>
       </Modal>
 
-      {/* Price type picker */}
+      {/* Purchase price type picker */}
       <Modal visible={ptOpen} transparent animationType="fade" onRequestClose={() => setPtOpen(false)}>
         <TouchableOpacity activeOpacity={1} style={styles.modalBack} onPress={() => setPtOpen(false)}>
-          <View style={[styles.modalBox, { maxHeight: "40%" }]}>
+          <TouchableOpacity activeOpacity={1} style={[styles.modalBox, { maxHeight: "50%" }]} onPress={() => { /* swallow */ }}>
             <Text style={styles.modalTitle}>Purchase price type</Text>
-            {(["regular", "deal"] as const).map((opt) => (
-              <TouchableOpacity key={opt} style={[styles.optRow, pt === opt && { backgroundColor: "#DBEAFE" }]} onPress={() => { onUpdate(item.id, { purchase_price_type: opt }); setPtOpen(false); }}>
-                <Text style={{ color: colors.text, fontWeight: pt === opt ? "700" : "500" }}>{opt === "deal" ? "Deal" : "Regular"}</Text>
+            {(["regular", "deal", "both"] as const).map((opt) => (
+              <TouchableOpacity
+                key={opt}
+                style={[styles.optRow, pt === opt && { backgroundColor: "#DBEAFE" }]}
+                onPress={() => { onUpdate(item.id, { purchase_price_type: opt }); setPtOpen(false); }}
+              >
+                <Text style={{ color: colors.text, fontWeight: pt === opt ? "700" : "500" }}>
+                  {opt === "deal" ? "Deal price" : opt === "both" ? "Both (regular + deal)" : "Regular price"}
+                </Text>
               </TouchableOpacity>
             ))}
-          </View>
+          </TouchableOpacity>
         </TouchableOpacity>
       </Modal>
     </View>
@@ -956,4 +1013,50 @@ const styles = StyleSheet.create({
   optRow: { paddingVertical: 12, paddingHorizontal: 12, borderRadius: radius.sm, borderBottomWidth: 1, borderBottomColor: colors.border },
   chip: { paddingHorizontal: 10, paddingVertical: 6, borderRadius: 14, borderWidth: 1, borderColor: colors.border },
   chipText: { color: colors.text, fontWeight: "600", fontSize: 12 },
+
+  // Shopping List row
+  shopRowCard: {
+    padding: spacing.sm, backgroundColor: colors.card, borderRadius: radius.md,
+    borderWidth: 1, borderColor: colors.border, gap: 8,
+  },
+  shopRowHeader: { flexDirection: "row", alignItems: "center", gap: spacing.sm },
+  shopThumbBox: {
+    width: 44, height: 44, borderRadius: radius.sm, backgroundColor: colors.surface,
+    alignItems: "center", justifyContent: "center", overflow: "hidden",
+    borderWidth: 1, borderColor: colors.border,
+  },
+  shopThumbImg: { width: "100%", height: "100%" },
+  shopThumbInit: { fontSize: 18, fontWeight: "700", color: colors.textMuted },
+  trashBtn: { padding: 8 },
+  shopFieldRow: { flexDirection: "row", gap: 8, alignItems: "flex-end" },
+  fieldGroup: { gap: 4 },
+  fieldLabel: { fontSize: 11, fontWeight: "600", color: colors.textMuted, textTransform: "uppercase", letterSpacing: 0.5 },
+  smallInput: {
+    width: 64, paddingVertical: 8, paddingHorizontal: 8, textAlign: "center",
+    fontWeight: "700", fontSize: 15, color: colors.text,
+    backgroundColor: colors.surface, borderRadius: radius.sm,
+    borderWidth: 1, borderColor: colors.border,
+  },
+  dropdownBtn: {
+    flexDirection: "row", alignItems: "center", justifyContent: "space-between",
+    paddingVertical: 9, paddingHorizontal: 10, gap: 6,
+    backgroundColor: colors.surface, borderRadius: radius.sm,
+    borderWidth: 1, borderColor: colors.border, minHeight: 38,
+  },
+  dropdownText: { color: colors.text, fontWeight: "600", fontSize: 13, flex: 1 },
+  priceWrap: {
+    flexDirection: "row", alignItems: "center", paddingHorizontal: 8,
+    backgroundColor: colors.surface, borderRadius: radius.sm,
+    borderWidth: 1, borderColor: colors.border,
+  },
+  priceDollar: { color: colors.textMuted, fontSize: 13, fontWeight: "600" },
+  priceInput: {
+    width: 70, paddingVertical: 8, paddingLeft: 4, fontSize: 14,
+    color: colors.text, fontWeight: "700", textAlign: "right",
+  },
+  notesInput: {
+    minHeight: 40, paddingVertical: 8, paddingHorizontal: 10, fontSize: 13,
+    color: colors.text, backgroundColor: colors.surface, borderRadius: radius.sm,
+    borderWidth: 1, borderColor: colors.border, textAlignVertical: "top",
+  },
 });

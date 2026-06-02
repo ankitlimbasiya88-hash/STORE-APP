@@ -97,11 +97,13 @@ export type ShoppingReportItem = {
   quantity: number;
   note?: string;
   supplier: string;
-  purchase_price_type: "regular" | "deal";
+  purchase_price_type: "regular" | "deal" | "both";
   purchase_price?: number | null;
 };
 
 export const buildShoppingHtml = (d: { storeName: string; listName: string; supplierLabel: string; items: ShoppingReportItem[] }): string => {
+  const ppLabel = (t: ShoppingReportItem["purchase_price_type"]): string =>
+    t === "deal" ? "Deal" : t === "both" ? "Both" : "Regular";
   const rows = d.items.length
     ? d.items.map((it) => {
         const line = (it.purchase_price != null && it.quantity) ? (it.purchase_price * it.quantity) : null;
@@ -109,7 +111,7 @@ export const buildShoppingHtml = (d: { storeName: string; listName: string; supp
           <td>${escape(it.name)}${it.note ? `<div class="note">${escape(it.note)}</div>` : ""}</td>
           <td class="num">${it.quantity}</td>
           <td>${escape(it.supplier)}</td>
-          <td>${it.purchase_price_type === "deal" ? "Deal" : "Regular"}</td>
+          <td>${ppLabel(it.purchase_price_type)}</td>
           <td class="num">${it.purchase_price != null ? money(it.purchase_price) : "—"}</td>
           <td class="num">${line != null ? money(line) : "—"}</td>
         </tr>`;
