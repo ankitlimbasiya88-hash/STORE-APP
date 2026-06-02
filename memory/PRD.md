@@ -60,7 +60,15 @@ Cash Accounting label finalised. New "Inventory & Orders" module with **4-tab st
 - Shopping List screen UI (backend is now live ✅)
 - Shopping screen (admin records actual purchases — auto-updates stock + adds to purchase_prices history)
 
-## Refactor + Reports Dashboard (iter 3.3)
+## Shopping List / Shopping polish + CSV export (iter 3.3.1)
+- **Search bar** added to both Shopping List and Shopping tabs (full-width input matching the Products tab pattern, with clear-X button).
+- **Category sort dropdown** added next to the Supplier filter on both tabs (loads `/api/inventory/categories`; supports "All", "Uncategorized", and each category).
+- **Shopping tab supplier dropdown fixed** — per-row supplier is now a tappable `SupplierPickerInline` (modal with same look/feel as Shopping List), no longer a passive label.
+- **CSV export** added everywhere PDF lives:
+  - Shopping List: header has PDF + CSV side by side
+  - Shopped History: each batch card now exposes PDF + **CSV** + Delete (admin only)
+  - Reports Dashboard: header has PDF + CSV side by side (multi-section CSV: period, accounting totals, by-head, by-day, shopping totals, by-supplier, by-month)
+- New shared utility `/app/frontend/src/utils/csv.ts` with `buildCsv()`, `buildMultiCsv()`, and `shareCsv()` (Web → Blob download with UTF-8 BOM; native → cache file + share sheet via `expo-sharing`).
 ### Refactor — `server.py` split into modules
 - `server.py` shrunk **1825 → 93 lines** (slim entrypoint: app, CORS, router registration, startup seed).
 - New layout:

@@ -11,6 +11,7 @@ import { useSession } from "@/src/ctx/SessionProvider";
 import { colors, spacing, radius } from "@/src/theme/colors";
 import { AppIcon } from "@/src/components/AppIcon";
 import { buildReportsSummaryHtml, generateAndShare } from "@/src/utils/pdf";
+import { buildMultiCsv, shareCsv } from "@/src/utils/csv";
 
 const fmt = (n: number): string => `$${(Math.round(n * 100) / 100).toFixed(2)}`;
 const fmtDateInput = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
@@ -141,6 +142,66 @@ export default function ReportsSummaryScreen() {
     }
   };
 
+  const shareCsvReport = async () => {
+    if (!data) return;
+    try {
+      const sections: { title: string; headers: string[]; rows: any[][] }[] = [];
+      sections.push({
+        title: `Reports Summary — ${storeName || "Store"} — ${data.period.from} to ${data.period.to}`,
+        headers: ["Section", "Metric", "Value"],
+        rows: [["Period", "From", data.period.from], ["Period", "To", data.period.to]],
+      });
+      if (!data.accounting?.hidden) {
+        sections.push({
+          title: "Cash Accounting — totals",
+          headers: ["Metric", "Amount"],
+          rows: [
+            ["Credit total", data.accounting.credit_total ?? 0],
+            ["Debit total", data.accounting.debit_total ?? 0],
+            ["Net", data.accounting.net ?? 0],
+            ["Days with entries", data.accounting.days_with_entries ?? 0],
+          ],
+        });
+        sections.push({
+          title: "Cash Accounting — by head",
+          headers: ["Head", "Type", "Total"],
+          rows: (data.accounting.by_head || []).map((h) => [h.head_name, h.type, h.total]),
+        });
+        if ((data.accounting.by_day || []).length) {
+          sections.push({
+            title: "Cash Accounting — by day",
+            headers: ["Date", "Credit", "Debit", "Net"],
+            rows: (data.accounting.by_day || []).map((d) => [d.date, d.credit, d.debit, d.net]),
+          });
+        }
+      }
+      sections.push({
+        title: "Shopping spend — totals",
+        headers: ["Metric", "Value"],
+        rows: [
+          ["Total spent (incl tax)", data.shopping.total_spent],
+          ["Total tax", data.shopping.total_tax],
+          ["Items", data.shopping.items],
+          ["Batches", data.shopping.batches],
+        ],
+      });
+      sections.push({
+        title: "Shopping spend — by supplier",
+        headers: ["Supplier", "Units", "Items", "Tax", "Spent"],
+        rows: data.shopping.by_supplier.map((s) => [s.supplier_name, s.quantity, s.items, s.tax, s.spent]),
+      });
+      sections.push({
+        title: "Shopping spend — by month",
+        headers: ["Month", "Spent"],
+        rows: data.shopping.by_month.map((m) => [m.month, m.spent]),
+      });
+      const csv = buildMultiCsv(sections);
+      await shareCsv(csv, `ReportsSummary_${data.period.from}_to_${data.period.to}.csv`);
+    } catch (e: any) {
+      Alert.alert("CSV error", e.message || "Failed to export");
+    }
+  };
+
   // For sparkline-ish progress bars
   const maxByHead = useMemo(() => {
     const heads = data?.accounting?.by_head || [];
@@ -162,10 +223,15 @@ export default function ReportsSummaryScreen() {
           <AppIcon name="back" size={20} color="#fff" />
         </TouchableOpacity>
         <Text style={styles.title}>Reports Dashboard</Text>
-        <TouchableOpacity onPress={sharePdf} style={styles.pdfBtn}>
-          <AppIcon name="download" size={16} color="#fff" />
-          <Text style={styles.pdfBtnText}>PDF</Text>
-        </TouchableOpacity>
+        <View style={{ flexDirection: "row", gap: 6 }}>
+          <TouchableOpacity onPress={sharePdf} style={styles.pdfBtn}>
+            <AppIcon name="download" size={16} color="#fff" />
+            <Text style={styles.pdfBtnText}>PDF</Text>
+          </TouchableOpacity>
+          <TouchableOpacity onPress={shareCsvReport} style={[styles.pdfBtn, { backgroundColor: "#10B981" }]}>
+            <Text style={styles.pdfBtnText}>CSV</Text>
+          </TouchableOpacity>
+        </View>
       </View>
 
       <ScrollView

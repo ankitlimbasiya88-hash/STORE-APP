@@ -86,24 +86,34 @@ const ShoppingListTab: React.FC<{ apiStore: any; isAdmin: boolean; storeName: st
   const [items, setItems] = useState<ShoppingItem[]>([]);
   const [suppliers, setSuppliers] = useState<SupplierLite[]>([]);
   const [productThumbs, setProductThumbs] = useState<Record<string, string | null>>({});
+  const [productCategoryId, setProductCategoryId] = useState<Record<string, string | null>>({});
+  const [categories, setCategories] = useState<{ id: string; name: string }[]>([]);
   const [loading, setLoading] = useState(true);
+  const [query, setQuery] = useState("");
   const [supplierFilter, setSupplierFilter] = useState<string | null>(null);
   const [supplierMenuOpen, setSupplierMenuOpen] = useState(false);
+  const [categoryFilter, setCategoryFilter] = useState<string | null>(null);
+  const [categoryMenuOpen, setCategoryMenuOpen] = useState(false);
   const [newListModalOpen, setNewListModalOpen] = useState(false);
   const [newListName, setNewListName] = useState("");
   const [busy, setBusy] = useState(false);
 
   const load = useCallback(async () => {
     try {
-      const [ls, sup, plist] = await Promise.all([
+      const [ls, sup, plist, cats] = await Promise.all([
         apiStore<ShoppingList[]>("/api/inventory/shopping-lists"),
         apiStore<SupplierLite[]>("/api/inventory/suppliers"),
         apiStore<ProductListItem[]>("/api/inventory/products?limit=500"),
+        apiStore<{ id: string; name: string }[]>("/api/inventory/categories"),
       ]);
-      setLists(ls); setSuppliers(sup);
+      setLists(ls); setSuppliers(sup); setCategories(cats);
       const thumbs: Record<string, string | null> = {};
-      plist.forEach((p: any) => { thumbs[p.id] = p.thumbnail || null; });
-      setProductThumbs(thumbs);
+      const catMap: Record<string, string | null> = {};
+      plist.forEach((p: any) => {
+        thumbs[p.id] = p.thumbnail || null;
+        catMap[p.id] = p.category_id || null;
+      });
+      setProductThumbs(thumbs); setProductCategoryId(catMap);
       if (!activeListId && ls.length > 0) setActiveListId(ls[0].id);
     } catch (e: any) { Alert.alert("Error", e.message); }
     finally { setLoading(false); }
@@ -163,17 +173,39 @@ const ShoppingListTab: React.FC<{ apiStore: any; isAdmin: boolean; storeName: st
   };
 
   const filtered = React.useMemo(() => {
-    if (!supplierFilter) return items;
-    if (supplierFilter === "__none__") return items.filter((i) => !i.supplier_id);
-    return items.filter((i) => i.supplier_id === supplierFilter);
-  }, [items, supplierFilter]);
+    let arr = items;
+    if (supplierFilter) {
+      if (supplierFilter === "__none__") arr = arr.filter((i) => !i.supplier_id);
+      else arr = arr.filter((i) => i.supplier_id === supplierFilter);
+    }
+    if (categoryFilter) {
+      if (categoryFilter === "__none__") {
+        arr = arr.filter((i) => !i.product_id || !productCategoryId[i.product_id]);
+      } else {
+        arr = arr.filter((i) => i.product_id && productCategoryId[i.product_id] === categoryFilter);
+      }
+    }
+    const q = query.trim().toLowerCase();
+    if (q) {
+      arr = arr.filter((i) => {
+        const name = (i.product_name || i.text || "").toLowerCase();
+        const note = (i.note || "").toLowerCase();
+        return name.includes(q) || note.includes(q);
+      });
+    }
+    return arr;
+  }, [items, supplierFilter, categoryFilter, query, productCategoryId]);
+
+  const supName = supplierFilter
+    ? (supplierFilter === "__none__" ? "No supplier" : (suppliers.find((s) => s.id === supplierFilter)?.name || "Supplier"))
+    : "All";
+  const catName = categoryFilter
+    ? (categoryFilter === "__none__" ? "Uncategorized" : (categories.find((c) => c.id === categoryFilter)?.name || "Category"))
+    : "All";
 
   const downloadPdf = async () => {
     try {
       const { buildShoppingHtml, generateAndShare } = await import("@/src/utils/pdf");
-      const supName = supplierFilter
-        ? (supplierFilter === "__none__" ? "No supplier" : (suppliers.find((s) => s.id === supplierFilter)?.name || "Supplier"))
-        : "All suppliers";
       const list = lists.find((l) => l.id === activeListId);
       const html = buildShoppingHtml({
         storeName,
@@ -192,12 +224,28 @@ const ShoppingListTab: React.FC<{ apiStore: any; isAdmin: boolean; storeName: st
     } catch (e: any) { Alert.alert("PDF error", e.message); }
   };
 
+  const downloadCsv = async () => {
+    try {
+      const { buildCsv, shareCsv } = await import("@/src/utils/csv");
+      const list = lists.find((l) => l.id === activeListId);
+      const headers = ["Product", "Quantity", "Supplier", "Category", "Price type", "Price", "Note"];
+      const rows = filtered.map((it) => [
+        it.product_name || it.text,
+        it.quantity,
+        it.supplier_id ? (suppliers.find((s) => s.id === it.supplier_id)?.name || "") : "",
+        it.product_id ? (categories.find((c) => c.id === productCategoryId[it.product_id!])?.name || "") : "",
+        it.purchase_price_type || "regular",
+        it.purchase_price != null ? it.purchase_price : "",
+        it.note || "",
+      ]);
+      const csv = buildCsv(headers, rows);
+      await shareCsv(csv, `Shopping_${(list?.name || "list").replace(/\W+/g, "_")}_${supName.replace(/\W+/g, "_")}.csv`);
+    } catch (e: any) { Alert.alert("CSV error", e.message); }
+  };
+
   if (loading) return <View style={{ padding: 40, alignItems: "center" }}><ActivityIndicator color={colors.primary} /></View>;
 
   const activeList = lists.find((l) => l.id === activeListId);
-  const supName = supplierFilter
-    ? (supplierFilter === "__none__" ? "No supplier" : (suppliers.find((s) => s.id === supplierFilter)?.name || "Supplier"))
-    : "All suppliers";
 
   return (
     <View style={{ flex: 1 }}>
@@ -220,15 +268,42 @@ const ShoppingListTab: React.FC<{ apiStore: any; isAdmin: boolean; storeName: st
         </TouchableOpacity>
       </ScrollView>
 
-      {/* Filter + PDF row */}
-      <View style={[styles.searchRow, { paddingTop: 6 }]}>
-        <TouchableOpacity onPress={() => setSupplierMenuOpen(true)} style={[styles.searchBox, { paddingLeft: 12, paddingVertical: 10, alignItems: "center" }]}>
-          <Text style={{ flex: 1, color: colors.text, fontWeight: "600", fontSize: 13 }}>Supplier: {supName}</Text>
-          <AppIcon name="down" size={14} color={colors.textMuted} />
-          <View style={{ width: 12 }} />
+      {/* Search bar */}
+      <View style={styles.searchRow}>
+        <View style={styles.searchBox}>
+          <TextInput
+            value={query}
+            onChangeText={setQuery}
+            placeholder="Search items by name or note"
+            placeholderTextColor={colors.textLight}
+            style={styles.searchInput}
+            returnKeyType="search"
+          />
+          {query.length > 0 && (
+            <TouchableOpacity onPress={() => setQuery("")} style={styles.clearBtn}>
+              <AppIcon name="close" size={14} color={colors.textMuted} />
+            </TouchableOpacity>
+          )}
+        </View>
+      </View>
+
+      {/* Filters + export row */}
+      <View style={[styles.searchRow, { paddingTop: 0, gap: 6, flexWrap: "wrap" }]}>
+        <TouchableOpacity onPress={() => setSupplierMenuOpen(true)} style={styles.compactFilter}>
+          <Text style={styles.compactFilterLabel}>Supplier</Text>
+          <Text style={styles.compactFilterVal} numberOfLines={1}>{supName}</Text>
+          <AppIcon name="down" size={12} color={colors.textMuted} />
         </TouchableOpacity>
-        <TouchableOpacity onPress={downloadPdf} style={[styles.searchSubmit]}>
-          <Text style={styles.searchSubmitText}>PDF</Text>
+        <TouchableOpacity onPress={() => setCategoryMenuOpen(true)} style={styles.compactFilter}>
+          <Text style={styles.compactFilterLabel}>Category</Text>
+          <Text style={styles.compactFilterVal} numberOfLines={1}>{catName}</Text>
+          <AppIcon name="down" size={12} color={colors.textMuted} />
+        </TouchableOpacity>
+        <TouchableOpacity onPress={downloadPdf} style={styles.exportBtn}>
+          <Text style={styles.exportBtnText}>PDF</Text>
+        </TouchableOpacity>
+        <TouchableOpacity onPress={downloadCsv} style={[styles.exportBtn, { backgroundColor: "#10B981", borderColor: "#10B981" }]}>
+          <Text style={[styles.exportBtnText, { color: "#fff" }]}>CSV</Text>
         </TouchableOpacity>
       </View>
 
@@ -280,6 +355,28 @@ const ShoppingListTab: React.FC<{ apiStore: any; isAdmin: boolean; storeName: st
               ))}
             </ScrollView>
           </View>
+        </TouchableOpacity>
+      </Modal>
+
+      {/* Category picker */}
+      <Modal visible={categoryMenuOpen} transparent animationType="fade" onRequestClose={() => setCategoryMenuOpen(false)}>
+        <TouchableOpacity activeOpacity={1} style={styles.modalBack} onPress={() => setCategoryMenuOpen(false)}>
+          <TouchableOpacity activeOpacity={1} style={[styles.modalBox, { maxHeight: "60%" }]} onPress={() => {}}>
+            <Text style={styles.modalTitle}>Filter by category</Text>
+            <ScrollView keyboardShouldPersistTaps="always">
+              <TouchableOpacity style={[styles.optRow, !categoryFilter && { backgroundColor: "#DBEAFE" }]} onPress={() => { setCategoryFilter(null); setCategoryMenuOpen(false); }}>
+                <Text style={{ color: colors.text, fontWeight: !categoryFilter ? "700" : "500" }}>All categories</Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={[styles.optRow, categoryFilter === "__none__" && { backgroundColor: "#DBEAFE" }]} onPress={() => { setCategoryFilter("__none__"); setCategoryMenuOpen(false); }}>
+                <Text style={{ color: colors.textMuted, fontWeight: categoryFilter === "__none__" ? "700" : "500" }}>— Uncategorized —</Text>
+              </TouchableOpacity>
+              {categories.map((c) => (
+                <TouchableOpacity key={c.id} style={[styles.optRow, categoryFilter === c.id && { backgroundColor: "#DBEAFE" }]} onPress={() => { setCategoryFilter(c.id); setCategoryMenuOpen(false); }}>
+                  <Text style={{ color: colors.text, fontWeight: categoryFilter === c.id ? "700" : "500" }}>{c.name}</Text>
+                </TouchableOpacity>
+              ))}
+            </ScrollView>
+          </TouchableOpacity>
         </TouchableOpacity>
       </Modal>
 
@@ -456,6 +553,41 @@ type StockRow = {
   updated_by: string;
   product?: { id: string; name: string; company?: string; size?: string; barcode?: string; selling_price?: number };
 };
+// Inline supplier picker used in shopping rows (tappable button + modal)
+const SupplierPickerInline: React.FC<{
+  suppliers: SupplierLite[];
+  value: string | null;
+  onChange: (sid: string | null) => void;
+}> = ({ suppliers, value, onChange }) => {
+  const [open, setOpen] = useState(false);
+  const sup = suppliers.find((s) => s.id === value);
+  return (
+    <>
+      <TouchableOpacity activeOpacity={0.7} style={styles.dropdownBtn} onPress={() => setOpen(true)}>
+        <Text style={styles.dropdownText} numberOfLines={1}>{sup?.name || "— Select —"}</Text>
+        <AppIcon name="down" size={12} color={colors.textMuted} />
+      </TouchableOpacity>
+      <Modal visible={open} transparent animationType="fade" onRequestClose={() => setOpen(false)}>
+        <TouchableOpacity activeOpacity={1} style={styles.modalBack} onPress={() => setOpen(false)}>
+          <TouchableOpacity activeOpacity={1} style={[styles.modalBox, { maxHeight: "60%" }]} onPress={() => {}}>
+            <Text style={styles.modalTitle}>Choose supplier</Text>
+            <ScrollView keyboardShouldPersistTaps="always">
+              <TouchableOpacity style={styles.optRow} onPress={() => { onChange(null); setOpen(false); }}>
+                <Text style={{ color: colors.textMuted }}>— None —</Text>
+              </TouchableOpacity>
+              {suppliers.map((s) => (
+                <TouchableOpacity key={s.id} style={[styles.optRow, value === s.id && { backgroundColor: "#DBEAFE" }]} onPress={() => { onChange(s.id); setOpen(false); }}>
+                  <Text style={{ color: colors.text, fontWeight: value === s.id ? "700" : "500" }}>{s.name}</Text>
+                </TouchableOpacity>
+              ))}
+            </ScrollView>
+          </TouchableOpacity>
+        </TouchableOpacity>
+      </Modal>
+    </>
+  );
+};
+
 // ------------- Shopping (purchase execution) tab -------------
 type DraftShoppedItem = {
   selected: boolean;
@@ -475,27 +607,35 @@ const ShoppingTab: React.FC<{ apiStore: any; isAdmin: boolean; storeName: string
   const [suppliers, setSuppliers] = useState<SupplierLite[]>([]);
   const [productThumbs, setProductThumbs] = useState<Record<string, string | null>>({});
   const [productTaxPct, setProductTaxPct] = useState<Record<string, number>>({});
+  const [productCategoryId, setProductCategoryId] = useState<Record<string, string | null>>({});
+  const [categories, setCategories] = useState<{ id: string; name: string }[]>([]);
   const [loading, setLoading] = useState(true);
+  const [query, setQuery] = useState("");
   const [supplierFilter, setSupplierFilter] = useState<string | null>(null);
   const [supplierMenuOpen, setSupplierMenuOpen] = useState(false);
+  const [categoryFilter, setCategoryFilter] = useState<string | null>(null);
+  const [categoryMenuOpen, setCategoryMenuOpen] = useState(false);
   const [drafts, setDrafts] = useState<Record<string, DraftShoppedItem>>({});
   const [busy, setBusy] = useState(false);
 
   const load = useCallback(async () => {
     try {
-      const [ls, sup, plist] = await Promise.all([
+      const [ls, sup, plist, cats] = await Promise.all([
         apiStore<ShoppingList[]>("/api/inventory/shopping-lists"),
         apiStore<SupplierLite[]>("/api/inventory/suppliers"),
         apiStore<ProductListItem[]>("/api/inventory/products?limit=500"),
+        apiStore<{ id: string; name: string }[]>("/api/inventory/categories"),
       ]);
-      setLists(ls); setSuppliers(sup);
+      setLists(ls); setSuppliers(sup); setCategories(cats);
       const thumbs: Record<string, string | null> = {};
       const taxes: Record<string, number> = {};
+      const catMap: Record<string, string | null> = {};
       plist.forEach((p: any) => {
         thumbs[p.id] = p.thumbnail || null;
         taxes[p.id] = Number(p.tax_pct || 0);
+        catMap[p.id] = p.category_id || null;
       });
-      setProductThumbs(thumbs); setProductTaxPct(taxes);
+      setProductThumbs(thumbs); setProductTaxPct(taxes); setProductCategoryId(catMap);
       if (!activeListId && ls.length > 0) setActiveListId(ls[0].id);
     } catch (e: any) { Alert.alert("Error", e.message); }
     finally { setLoading(false); }
@@ -527,11 +667,25 @@ const ShoppingTab: React.FC<{ apiStore: any; isAdmin: boolean; storeName: string
   useEffect(() => { loadItems(); }, [loadItems]);
 
   const filtered = useMemo(() => {
-    if (!supplierFilter) return items;
-    return items.filter((i) => (i.supplier_id || null) === supplierFilter);
-  }, [items, supplierFilter]);
+    let arr = items;
+    if (supplierFilter) arr = arr.filter((i) => (i.supplier_id || null) === supplierFilter);
+    if (categoryFilter) {
+      if (categoryFilter === "__none__") arr = arr.filter((i) => !i.product_id || !productCategoryId[i.product_id]);
+      else arr = arr.filter((i) => i.product_id && productCategoryId[i.product_id] === categoryFilter);
+    }
+    const q = query.trim().toLowerCase();
+    if (q) {
+      arr = arr.filter((i) => {
+        const name = (i.product_name || i.text || "").toLowerCase();
+        const note = (i.note || "").toLowerCase();
+        return name.includes(q) || note.includes(q);
+      });
+    }
+    return arr;
+  }, [items, supplierFilter, categoryFilter, query, productCategoryId]);
 
-  const supplierFilterLabel = !supplierFilter ? "All suppliers" : (suppliers.find((s) => s.id === supplierFilter)?.name || "Supplier");
+  const supplierFilterLabel = !supplierFilter ? "All" : (suppliers.find((s) => s.id === supplierFilter)?.name || "Supplier");
+  const categoryFilterLabel = !categoryFilter ? "All" : (categoryFilter === "__none__" ? "Uncategorized" : (categories.find((c) => c.id === categoryFilter)?.name || "Category"));
   const selectedIds = Object.entries(drafts).filter(([_, d]) => d.selected).map(([id]) => id);
   const visibleSelected = filtered.filter((it) => drafts[it.id]?.selected);
 
@@ -619,13 +773,35 @@ const ShoppingTab: React.FC<{ apiStore: any; isAdmin: boolean; storeName: string
         </TouchableOpacity>
       </View>
 
-      <View style={[styles.filterBar, { paddingBottom: 8 }]}>
-        <TouchableOpacity style={styles.filterBtn} onPress={() => setSupplierMenuOpen(true)}>
-          <AppIcon name="filter" size={12} color={colors.text} />
-          <Text style={styles.filterText}>{supplierFilterLabel}</Text>
-          <AppIcon name="down" size={10} color={colors.textMuted} />
-        </TouchableOpacity>
-        <View style={{ flexDirection: "row", gap: 6 }}>
+      <View style={[styles.filterBar, { paddingBottom: 8, flexDirection: "column", alignItems: "stretch", gap: 8 }]}>
+        <View style={styles.searchBox}>
+          <TextInput
+            value={query}
+            onChangeText={setQuery}
+            placeholder="Search items by name or note"
+            placeholderTextColor={colors.textLight}
+            style={styles.searchInput}
+            returnKeyType="search"
+          />
+          {query.length > 0 && (
+            <TouchableOpacity onPress={() => setQuery("")} style={styles.clearBtn}>
+              <AppIcon name="close" size={14} color={colors.textMuted} />
+            </TouchableOpacity>
+          )}
+        </View>
+        <View style={{ flexDirection: "row", gap: 6, flexWrap: "wrap" }}>
+          <TouchableOpacity onPress={() => setSupplierMenuOpen(true)} style={styles.compactFilter}>
+            <Text style={styles.compactFilterLabel}>Supplier</Text>
+            <Text style={styles.compactFilterVal} numberOfLines={1}>{supplierFilterLabel}</Text>
+            <AppIcon name="down" size={12} color={colors.textMuted} />
+          </TouchableOpacity>
+          <TouchableOpacity onPress={() => setCategoryMenuOpen(true)} style={styles.compactFilter}>
+            <Text style={styles.compactFilterLabel}>Category</Text>
+            <Text style={styles.compactFilterVal} numberOfLines={1}>{categoryFilterLabel}</Text>
+            <AppIcon name="down" size={12} color={colors.textMuted} />
+          </TouchableOpacity>
+        </View>
+        <View style={{ flexDirection: "row", gap: 6, justifyContent: "flex-end" }}>
           <TouchableOpacity style={styles.linkBtn} onPress={() => toggleAllVisible(true)}>
             <Text style={styles.linkBtnText}>Select all</Text>
           </TouchableOpacity>
@@ -701,7 +877,11 @@ const ShoppingTab: React.FC<{ apiStore: any; isAdmin: boolean; storeName: string
               <View style={styles.shopFieldRow}>
                 <View style={[styles.fieldGroup, { flex: 1 }]}>
                   <Text style={styles.fieldLabel}>Supplier</Text>
-                  <Text style={styles.dimmedRow} numberOfLines={1}>{sup?.name || "— None —"}</Text>
+                  <SupplierPickerInline
+                    suppliers={suppliers}
+                    value={d.supplier_id}
+                    onChange={(sid) => updateDraft(item.id, { supplier_id: sid })}
+                  />
                 </View>
                 <View style={styles.totalsBox}>
                   <Text style={styles.lineTotalLabel}>Line total</Text>
@@ -725,6 +905,27 @@ const ShoppingTab: React.FC<{ apiStore: any; isAdmin: boolean; storeName: string
               {suppliers.map((s) => (
                 <TouchableOpacity key={s.id} style={[styles.optRow, supplierFilter === s.id && { backgroundColor: "#DBEAFE" }]} onPress={() => { setSupplierFilter(s.id); setSupplierMenuOpen(false); }}>
                   <Text style={{ color: colors.text, fontWeight: supplierFilter === s.id ? "700" : "500" }}>{s.name}</Text>
+                </TouchableOpacity>
+              ))}
+            </ScrollView>
+          </TouchableOpacity>
+        </TouchableOpacity>
+      </Modal>
+
+      <Modal visible={categoryMenuOpen} transparent animationType="fade" onRequestClose={() => setCategoryMenuOpen(false)}>
+        <TouchableOpacity activeOpacity={1} style={styles.modalBack} onPress={() => setCategoryMenuOpen(false)}>
+          <TouchableOpacity activeOpacity={1} style={[styles.modalBox, { maxHeight: "60%" }]} onPress={() => { /* swallow */ }}>
+            <Text style={styles.modalTitle}>Filter by category</Text>
+            <ScrollView keyboardShouldPersistTaps="always">
+              <TouchableOpacity style={[styles.optRow, !categoryFilter && { backgroundColor: "#DBEAFE" }]} onPress={() => { setCategoryFilter(null); setCategoryMenuOpen(false); }}>
+                <Text style={{ color: colors.text, fontWeight: !categoryFilter ? "700" : "500" }}>All categories</Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={[styles.optRow, categoryFilter === "__none__" && { backgroundColor: "#DBEAFE" }]} onPress={() => { setCategoryFilter("__none__"); setCategoryMenuOpen(false); }}>
+                <Text style={{ color: colors.textMuted, fontWeight: categoryFilter === "__none__" ? "700" : "500" }}>— Uncategorized —</Text>
+              </TouchableOpacity>
+              {categories.map((c) => (
+                <TouchableOpacity key={c.id} style={[styles.optRow, categoryFilter === c.id && { backgroundColor: "#DBEAFE" }]} onPress={() => { setCategoryFilter(c.id); setCategoryMenuOpen(false); }}>
+                  <Text style={{ color: colors.text, fontWeight: categoryFilter === c.id ? "700" : "500" }}>{c.name}</Text>
                 </TouchableOpacity>
               ))}
             </ScrollView>
@@ -1380,4 +1581,16 @@ const styles = StyleSheet.create({
     backgroundColor: colors.primary, paddingHorizontal: 16, paddingVertical: 12, borderRadius: radius.md,
   },
   submitGoText: { color: "#fff", fontWeight: "800", fontSize: 14 },
+  compactFilter: {
+    flexDirection: "row", alignItems: "center", gap: 6, paddingHorizontal: 10, paddingVertical: 8,
+    backgroundColor: colors.card, borderRadius: radius.sm, borderWidth: 1, borderColor: colors.border,
+    flex: 1, minWidth: 130,
+  },
+  compactFilterLabel: { fontSize: 10, color: colors.textMuted, fontWeight: "700", textTransform: "uppercase" },
+  compactFilterVal: { flex: 1, color: colors.text, fontWeight: "700", fontSize: 13 },
+  exportBtn: {
+    paddingHorizontal: 14, paddingVertical: 10, borderRadius: radius.sm,
+    borderWidth: 1, borderColor: colors.primary, backgroundColor: colors.primary,
+  },
+  exportBtnText: { color: "#fff", fontWeight: "700", fontSize: 12 },
 });

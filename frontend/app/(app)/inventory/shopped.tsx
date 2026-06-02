@@ -10,6 +10,7 @@ import { colors, spacing, radius } from "@/src/theme/colors";
 import { AppIcon } from "@/src/components/AppIcon";
 import { Supplier } from "@/src/utils/inventory";
 import { buildShoppedHtml, generateAndShare } from "@/src/utils/pdf";
+import { buildCsv, shareCsv } from "@/src/utils/csv";
 
 type ShoppedRecord = {
   id: string;
@@ -144,6 +145,29 @@ export default function ShoppedHistoryScreen() {
     }
   };
 
+  const shareCsvBatch = async (g: BatchGroup) => {
+    try {
+      const headers = ["Product", "Quantity", "Type", "Unit Price", "Tax %", "Tax Amount", "Line Total", "Total incl Tax", "Note"];
+      const rows = g.items.map((r) => [
+        r.product_name || r.text,
+        r.quantity,
+        r.purchase_price_type,
+        r.purchase_price,
+        r.tax_pct,
+        r.tax_amount,
+        r.line_total,
+        r.total_with_tax,
+        r.note,
+      ]);
+      // Add a totals row
+      rows.push(["", "", "", "", "", g.tax, g.subtotal, g.total, "TOTALS"]);
+      const csv = buildCsv(headers, rows);
+      await shareCsv(csv, `Shopped_${(g.supplier_name || "batch").replace(/\W+/g, "_")}_${g.shopped_at.slice(0, 10)}.csv`);
+    } catch (e: any) {
+      Alert.alert("CSV error", e.message || "Failed to export");
+    }
+  };
+
   const deleteBatch = async (g: BatchGroup) => {
     Alert.alert("Delete batch", `Permanently remove ${g.items.length} shopped record(s)?`, [
       { text: "Cancel", style: "cancel" },
@@ -243,6 +267,9 @@ export default function ShoppedHistoryScreen() {
                     <TouchableOpacity style={styles.actionBtn} onPress={() => sharePdf(g)}>
                       <AppIcon name="download" size={14} color={colors.primary} />
                       <Text style={styles.actionText}>PDF</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity style={[styles.actionBtn, { backgroundColor: "#D1FAE5" }]} onPress={() => shareCsvBatch(g)}>
+                      <Text style={[styles.actionText, { color: "#059669" }]}>CSV</Text>
                     </TouchableOpacity>
                     {isAdmin && (
                       <TouchableOpacity style={[styles.actionBtn, { backgroundColor: "#FEE2E2" }]} onPress={() => deleteBatch(g)}>
