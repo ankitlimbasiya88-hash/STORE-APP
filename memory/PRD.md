@@ -60,7 +60,45 @@ Cash Accounting label finalised. New "Inventory & Orders" module with **4-tab st
 - Shopping List screen UI (backend is now live ✅)
 - Shopping screen (admin records actual purchases — auto-updates stock + adds to purchase_prices history)
 
-## Milestone D — Shopping execution + Shopped history (iter 3.2)
+## Refactor + Reports Dashboard (iter 3.3)
+### Refactor — `server.py` split into modules
+- `server.py` shrunk **1825 → 93 lines** (slim entrypoint: app, CORS, router registration, startup seed).
+- New layout:
+  ```
+  /app/backend/
+    core/
+      db.py        Mongo client + db handle
+      deps.py      JWT, bcrypt, get_current_user, require_admin, require_store_access
+      helpers.py   money_round, today_str, now_utc, entry_total
+    routes/
+      auth.py        /auth/* + /users/*
+      stores.py      /stores/*
+      checklists.py  /checklists/*
+      accounting.py  /accounting/*
+      inventory.py   /inventory/*  (1000 lines — biggest single domain)
+      chat.py        /chat/messages + WS /ws/chat
+      reports.py     /reports/*    (NEW)
+  ```
+- Legacy monolith preserved at `/app/backend/server_legacy.py.bak`.
+- Endpoint paths, payloads, and responses are byte-for-byte identical to before.
+
+### New — Reports dashboard
+Backend `GET /api/reports/summary?store_id=&date_from=&date_to=`:
+- Defaults to current month → today
+- Aggregates **Cash Accounting** (credit_total / debit_total / net + by_head + by_day + days_with_entries)
+- Aggregates **Shopping spend** from `shopped_records` (total_spent + total_tax + batches + items + by_supplier + by_month)
+- Employees see `accounting: {hidden: true}` — cash totals never leak to non-admins
+- Tolerant: swaps reversed date ranges, validates store access
+
+Frontend `/operations/summary` screen:
+- 5 quick presets: This month · Last month · Last 30 · Last 90 · YTD
+- Custom from/to date pickers (iOS modal spinner / Android native)
+- **Cash Accounting** card: Credit / Debit / Net KPI tiles + green/red bars per head
+- **Shopping Spend** card: Total / Tax / Items+Batches KPIs + orange bars per supplier + sky-blue bars per month
+- Header **PDF** button → calls new `buildReportsSummaryHtml()` for a clean print-friendly export
+
+### Tests
+**144/144 PASS** (8 new Reports tests + 136 regression).
 ### Backend (`server.py`)
 - New collection: **`shopped_records`** (permanent history of executed shopping batches).
 - New endpoints:
