@@ -26,10 +26,13 @@ export default function ProductDetailScreen() {
   const [categories, setCategories] = useState<Taxonomy[]>([]);
   const [purchaseTypes, setPurchaseTypes] = useState<Taxonomy[]>([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   const [activePic, setActivePic] = useState(0);
   const [addingToList, setAddingToList] = useState(false);
 
   const load = useCallback(async () => {
+    setLoading(true);
+    setError(null);
     try {
       const [p, s, c, pt] = await Promise.all([
         apiStore<Product>(`/api/inventory/products/${id}`),
@@ -41,13 +44,15 @@ export default function ProductDetailScreen() {
       setSuppliers(s);
       setCategories(c);
       setPurchaseTypes(pt);
-    } catch (e: any) { Alert.alert("Error", e.message); }
+    } catch (e: any) {
+      setError(e?.message || "Could not load product");
+    }
     finally { setLoading(false); }
   }, [apiStore, id]);
 
   useEffect(() => { load(); }, [load]);
 
-  if (loading || !product) {
+  if (loading) {
     return (
       <SafeAreaView style={styles.container} edges={["top"]}>
         <View style={styles.header}>
@@ -60,6 +65,35 @@ export default function ProductDetailScreen() {
         </View>
         <View style={{ flex: 1, alignItems: "center", justifyContent: "center" }}>
           <ActivityIndicator color={colors.primary} />
+        </View>
+      </SafeAreaView>
+    );
+  }
+
+  if (error || !product) {
+    const is404 = (error || "").includes("404");
+    return (
+      <SafeAreaView style={styles.container} edges={["top"]}>
+        <View style={styles.header}>
+          <TouchableOpacity onPress={() => router.back()} style={styles.iconBtn}>
+            <AppIcon name="back" size={20} color="#fff" />
+            <Text style={styles.btnLabel}>Back</Text>
+          </TouchableOpacity>
+          <Text style={styles.headerTitle}>Product</Text>
+          <View style={{ width: 60 }} />
+        </View>
+        <View style={{ flex: 1, alignItems: "center", justifyContent: "center", padding: 30 }}>
+          <Text style={{ fontSize: 18, fontWeight: "700", color: colors.text, marginBottom: 8 }}>
+            {is404 ? "Product not found" : "Couldn't load this product"}
+          </Text>
+          <Text style={{ fontSize: 13, color: colors.textMuted, textAlign: "center", marginBottom: 20 }}>
+            {is404
+              ? "This product no longer exists. It may have been deleted or you may have switched stores."
+              : (error || "Something went wrong.")}
+          </Text>
+          <TouchableOpacity onPress={() => router.replace("/(app)/inventory" as any)} style={{ paddingHorizontal: 18, paddingVertical: 10, backgroundColor: colors.primary, borderRadius: radius.md }}>
+            <Text style={{ color: "#fff", fontWeight: "700" }}>Back to Inventory</Text>
+          </TouchableOpacity>
         </View>
       </SafeAreaView>
     );
