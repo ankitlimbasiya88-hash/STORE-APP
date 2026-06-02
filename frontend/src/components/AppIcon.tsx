@@ -82,6 +82,12 @@ export const AppIcon: React.FC<Props> = ({ name, size = 20, color = "#0F172A", w
       );
     case "trash":
       return <Trash size={size} color={color} stroke={stroke} />;
+    case "clock":
+      return <Clock size={size} color={color} stroke={stroke} />;
+    case "filter":
+      return <Filter size={size} color={color} stroke={stroke} />;
+    case "cart":
+      return <Cart size={size} color={color} stroke={stroke} />;
 
     default:
       return null;
@@ -340,6 +346,43 @@ const Trash: React.FC<{ size: number; color: string; stroke: number }> = ({ size
         borderBottomRightRadius: 3,
       }}
     />
+  </View>
+);
+
+const Clock: React.FC<{ size: number; color: string; stroke: number }> = ({ size, color, stroke }) => (
+  <View style={[styles.glyphBox, { width: size, height: size }]}>
+    <View style={{ width: size * 0.85, height: size * 0.85, borderRadius: size, borderWidth: stroke, borderColor: color }} />
+    {/* minute hand pointing up */}
+    <View style={{ position: "absolute", width: stroke, height: size * 0.3, backgroundColor: color, top: size * 0.2, borderRadius: stroke / 2 }} />
+    {/* hour hand pointing right */}
+    <View style={{ position: "absolute", width: size * 0.22, height: stroke, backgroundColor: color, left: size * 0.5, borderRadius: stroke / 2 }} />
+  </View>
+);
+
+const Filter: React.FC<{ size: number; color: string; stroke: number }> = ({ size, color, stroke }) => (
+  <View style={[styles.glyphBox, { width: size, height: size }]}>
+    <View style={{ position: "absolute", top: size * 0.2, left: size * 0.1, right: size * 0.1, height: stroke, backgroundColor: color, borderRadius: stroke / 2 }} />
+    <View style={{ position: "absolute", top: size * 0.46, left: size * 0.22, right: size * 0.22, height: stroke, backgroundColor: color, borderRadius: stroke / 2 }} />
+    <View style={{ position: "absolute", top: size * 0.72, left: size * 0.36, right: size * 0.36, height: stroke, backgroundColor: color, borderRadius: stroke / 2 }} />
+  </View>
+);
+
+const Cart: React.FC<{ size: number; color: string; stroke: number }> = ({ size, color, stroke }) => (
+  <View style={[styles.glyphBox, { width: size, height: size }]}>
+    {/* basket */}
+    <View style={{
+      position: "absolute", top: size * 0.3, left: size * 0.18, right: size * 0.08,
+      height: size * 0.4, borderWidth: stroke, borderColor: color, borderRadius: stroke,
+    }} />
+    {/* handle */}
+    <View style={{
+      position: "absolute", top: size * 0.18, left: size * 0.04, width: size * 0.2,
+      height: stroke, backgroundColor: color, borderRadius: stroke / 2, transform: [{ rotate: "-15deg" }],
+    }} />
+    {/* wheel 1 */}
+    <View style={{ position: "absolute", bottom: size * 0.04, left: size * 0.28, width: size * 0.16, height: size * 0.16, borderRadius: size, borderWidth: stroke, borderColor: color }} />
+    {/* wheel 2 */}
+    <View style={{ position: "absolute", bottom: size * 0.04, right: size * 0.12, width: size * 0.16, height: size * 0.16, borderRadius: size, borderWidth: stroke, borderColor: color }} />
   </View>
 );
 

@@ -1,0 +1,54 @@
+{
+  "summary": "Milestone D (Shopped Records) backend tested. Fixed 1 P0 blocker (NameError uuid4 -> uuid.uuid4 in /shopping/execute). 6/7 new tests pass. 1 remaining HIGH failure: banker's-rounding bug — round(27.125,2)=27.12 not 27.13. Multi-item batch, text-only item, admin/non-admin delete (403), empty-items and invalid-PPT (422) all pass. Regression: 59/59 prior tests (5 ceiling + 13 both-PPT + 27 phase5 + 14 accounting v3) still pass.",
+  "backend_issues": {
+    "critical": [
+      {
+        "endpoint": "POST /api/inventory/shopping/execute",
+        "issue": "NameError: name 'uuid4' is not defined at server.py:1546 and 1599. The file imports `uuid` (not `from uuid import uuid4`), but two new lines use bare uuid4(). Caused HTTP 500 on every execute call. FIXED by testing agent: replaced `str(uuid4())` -> `str(uuid.uuid4())` on both lines to match the convention used elsewhere in server.py.",
+        "priority": "CRITICAL"
+      },
+      {
+        "endpoint": "POST /api/inventory/shopping/execute (rounding)",
+        "issue": "Banker's-rounding bug. Python's built-in round() uses round-half-to-even, so round(27.125, 2) = 27.12 and round(2.125, 2) = 2.12. Spec requires standard accounting rounding (half-away-from-zero): tax_amount=2.13, total_with_tax=27.13, total_amount=27.13. Verified empirically: GET /inventory/shopped/batch/{id} returns line_total=25.0, tax_amount=2.12, total_with_tax=27.12 and the execute response returns total_amount=27.12. Fix: use Decimal + ROUND_HALF_UP for all currency rounding inside execute_shopping (server.py:1593-1632). Example helper: `def round2(x): from decimal import Decimal, ROUND_HALF_UP; return float(Decimal(str(x)).quantize(Decimal('0.01'), rounding=ROUND_HALF_UP))`.",
+        "priority": "HIGH"
+      }
+    ],
+    "minor": [
+      {
+        "endpoint": "GET /api/inventory/shopped/batch/{batch_id}",
+        "issue": "Sort key at server.py:1657 uses `created_at` field which does not exist on shopped_records (records use `shopped_at`). Currently records returned in arbitrary (insertion) order. Recommend sorting by `shopped_at` ascending or `_id`/`id`."
+      }
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [],
+    "react_native_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_shopped_records.py",
+    "/app/test_reports/pytest/iter8_shopped_records.xml",
+    "/app/test_reports/pytest/iter8_regression.xml"
+  ],
+  "action_items": [
+    "Replace all currency rounding inside execute_shopping (server.py:1593-1632) with Decimal+ROUND_HALF_UP so 27.125 -> 27.13 and 2.125 -> 2.13. Apply consistently to line_total, tax_amount, total_with_tax, and final total_amount.",
+    "Fix GET /inventory/shopped/batch sort key: change `.sort('created_at', 1)` to `.sort('shopped_at', 1)` at server.py:1657.",
+    "Confirm fix by re-running pytest backend/tests/test_shopped_records.py::TestHappyPath (expects total_amount=27.13, tax_amount=2.13, total_with_tax=27.13)."
+  ],
+  "critical_code_review_comments": [
+    "server.py:1546,1599 used bare `uuid4()` while the module imports `uuid` only — caught only because no test had previously exercised the new endpoint. Suggest a lint step or use a single project-wide helper.",
+    "Rounding policy should be centralized. Multiple places (accounting, shopping execute) may round currency; pin to ROUND_HALF_UP via a shared helper to avoid silent banker's-rounding drift.",
+    "ShoppedRecord stores `shopped_at` as datetime but other models store ISO strings. Mixed types in Mongo make ad-hoc range queries error-prone — consider standardizing."
+  ],
+  "updated_files": [
+    "/app/backend/server.py (lines 1546 & 1599: uuid4() -> uuid.uuid4())",
+    "/app/backend/tests/test_shopped_records.py (new test module)"
+  ],
+  "success_rate": {"backend": "94.7% (6/7 new + 59/59 regression = 65/66)", "frontend": "not tested (skipped per request)"},
+  "seed_data_creation": "Each test class creates its own TEST_-prefixed store, products, shopping-list items, and (where needed) a TEST_Emp_* employee user via /api/auth/register. All created entities are torn down in module-scope fixtures.",
+  "retest_needed": true,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "After main agent fixes the rounding bug, re-run only `pytest backend/tests/test_shopped_records.py -v` to verify TestHappyPath passes. The other 6 cases in this module + the 59-test regression suite are already green. The fix scope is limited to currency rounding inside execute_shopping; no other endpoint should be affected. Note: NameError uuid4 was already fixed by testing agent (one-line `uuid.uuid4()` change).",
+  "rca_of_issue": "RCA #1 (NameError, RESOLVED): server.py imports `import uuid` only, yet lines 1546 and 1599 used the bare name `uuid4()`. Resulted in 500 on every POST /api/inventory/shopping/execute. Fix applied: `str(uuid4())` -> `str(uuid.uuid4())`. RCA #2 (Rounding, OPEN): the spec value 27.13 requires half-away-from-zero rounding, but Python's built-in `round()` implements IEEE-754 banker's rounding (round-half-to-even). Reproduce in Python: `round(27.125, 2) == 27.12`. Mitigation: replace `round(x, 2)` with `float(Decimal(str(x)).quantize(Decimal('0.01'), rounding=ROUND_HALF_UP))` inside execute_shopping. Confirmed via GET /inventory/shopped/batch which returns tax_amount=2.12 and total_with_tax=27.12 — values matched the buggy banker's rounding."
+}

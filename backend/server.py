@@ -1492,6 +1492,187 @@ async def submit_stock(store_id: str = Query(...), user=Depends(get_current_user
     return {"orders_added": written, "list_id": cont["id"]}
 
 
+# ============ Shopped Records (executed shopping batches) ============
+class ShoppedRecord(BaseModel):
+    id: str
+    store_id: str
+    batch_id: str
+    list_id: Optional[str] = None
+    list_name: Optional[str] = None
+    supplier_id: Optional[str] = None
+    supplier_name: Optional[str] = None
+    product_id: Optional[str] = None
+    product_name: Optional[str] = None
+    text: str = ""
+    quantity: int
+    purchase_price_type: Literal["regular", "deal", "both"] = "regular"
+    purchase_price: float = 0
+    tax_pct: float = 0
+    line_total: float = 0
+    tax_amount: float = 0
+    total_with_tax: float = 0
+    note: str = ""
+    shopped_at: datetime
+    shopped_by: str
+    source_item_id: Optional[str] = None
+
+
+class ExecuteShoppedItem(BaseModel):
+    item_id: str                       # source shopping_list item id
+    quantity: int
+    purchase_price: float = 0
+    purchase_price_type: Literal["regular", "deal", "both"] = "regular"
+    supplier_id: Optional[str] = None
+    note: str = ""
+
+
+class ExecuteShoppingPayload(BaseModel):
+    list_id: Optional[str] = None
+    items: List[ExecuteShoppedItem]
+
+
+@api_router.post("/inventory/shopping/execute")
+async def execute_shopping(
+    payload: ExecuteShoppingPayload,
+    store_id: str = Query(...),
+    user=Depends(get_current_user),
+):
+    """Move selected shopping-list items to permanent shopped_records collection.
+    Source items are deleted from shopping_list (moved semantics)."""
+    await require_store_access(user, store_id)
+    if not payload.items:
+        return {"batch_id": None, "count": 0, "total": 0}
+
+    batch_id = str(uuid.uuid4())
+    now = datetime.now(timezone.utc)
+
+    # cache lookups
+    sup_cache: Dict[str, str] = {}
+    list_name_cache: Dict[str, str] = {}
+
+    async def supplier_name(sid: Optional[str]) -> Optional[str]:
+        if not sid:
+            return None
+        if sid in sup_cache:
+            return sup_cache[sid]
+        s = await db.suppliers.find_one({"id": sid, "store_id": store_id}, {"_id": 0, "name": 1})
+        n = s["name"] if s else None
+        sup_cache[sid] = n
+        return n
+
+    async def list_name(lid: Optional[str]) -> Optional[str]:
+        if not lid:
+            return None
+        if lid in list_name_cache:
+            return list_name_cache[lid]
+        l = await db.shopping_lists.find_one({"id": lid, "store_id": store_id}, {"_id": 0, "name": 1})
+        n = l["name"] if l else None
+        list_name_cache[lid] = n
+        return n
+
+    records = []
+    total_amount = 0.0
+    item_ids_to_remove: List[str] = []
+
+    for ip in payload.items:
+        item = await db.shopping_list.find_one({"id": ip.item_id, "store_id": store_id}, {"_id": 0})
+        if not item:
+            continue
+
+        product_name = item.get("product_name") or item.get("text") or ""
+        tax_pct = 0.0
+        product_id = item.get("product_id")
+        if product_id:
+            p = await db.products.find_one({"id": product_id, "store_id": store_id}, {"_id": 0, "name": 1, "tax_pct": 1})
+            if p:
+                tax_pct = float(p.get("tax_pct") or 0)
+                product_name = p["name"]
+
+        qty = max(0, int(round(ip.quantity)))
+        price = float(ip.purchase_price or 0)
+        line_total = qty * price
+        tax_amount = line_total * tax_pct / 100.0
+        total_with_tax = line_total + tax_amount
+
+        sup_id = ip.supplier_id if ip.supplier_id is not None else item.get("supplier_id")
+        rec = {
+            "id": str(uuid.uuid4()),
+            "store_id": store_id,
+            "batch_id": batch_id,
+            "list_id": item.get("list_id"),
+            "list_name": await list_name(item.get("list_id")),
+            "supplier_id": sup_id,
+            "supplier_name": await supplier_name(sup_id),
+            "product_id": product_id,
+            "product_name": product_name,
+            "text": item.get("text", ""),
+            "quantity": qty,
+            "purchase_price_type": ip.purchase_price_type,
+            "purchase_price": round(price, 2),
+            "tax_pct": tax_pct,
+            "line_total": round(line_total, 2),
+            "tax_amount": round(tax_amount, 2),
+            "total_with_tax": round(total_with_tax, 2),
+            "note": ip.note or item.get("note", ""),
+            "shopped_at": now,
+            "shopped_by": user["name"],
+            "source_item_id": item["id"],
+        }
+        records.append(rec)
+        total_amount += total_with_tax
+        item_ids_to_remove.append(item["id"])
+
+    if records:
+        await db.shopped_records.insert_many([dict(r) for r in records])
+        await db.shopping_list.delete_many({"id": {"$in": item_ids_to_remove}, "store_id": store_id})
+
+    return {
+        "batch_id": batch_id,
+        "count": len(records),
+        "total_amount": round(total_amount, 2),
+    }
+
+
+@api_router.get("/inventory/shopped", response_model=List[ShoppedRecord])
+async def list_shopped_records(
+    store_id: str = Query(...),
+    supplier_id: Optional[str] = None,
+    days: int = 90,
+    limit: int = 1000,
+    user=Depends(get_current_user),
+):
+    """List shopped records sorted newest-first."""
+    await require_store_access(user, store_id)
+    cutoff = datetime.now(timezone.utc) - timedelta(days=max(1, days))
+    q: Dict[str, Any] = {"store_id": store_id, "shopped_at": {"$gte": cutoff}}
+    if supplier_id:
+        q["supplier_id"] = supplier_id
+    cursor = db.shopped_records.find(q, {"_id": 0}).sort("shopped_at", -1).limit(limit)
+    return [ShoppedRecord(**doc) async for doc in cursor]
+
+
+@api_router.get("/inventory/shopped/batch/{batch_id}", response_model=List[ShoppedRecord])
+async def get_shopped_batch(batch_id: str, store_id: str = Query(...), user=Depends(get_current_user)):
+    await require_store_access(user, store_id)
+    cursor = db.shopped_records.find({"batch_id": batch_id, "store_id": store_id}, {"_id": 0}).sort("created_at", 1)
+    return [ShoppedRecord(**doc) async for doc in cursor]
+
+
+@api_router.delete("/inventory/shopped/{record_id}", status_code=204)
+async def delete_shopped_record(record_id: str, store_id: str = Query(...), user=Depends(require_admin)):
+    await require_store_access(user, store_id)
+    await db.shopped_records.delete_one({"id": record_id, "store_id": store_id})
+    return Response(status_code=204)
+
+
+@api_router.delete("/inventory/shopped/batch/{batch_id}", status_code=204)
+async def delete_shopped_batch(batch_id: str, store_id: str = Query(...), user=Depends(require_admin)):
+    await require_store_access(user, store_id)
+    await db.shopped_records.delete_many({"batch_id": batch_id, "store_id": store_id})
+    return Response(status_code=204)
+
+
+
 # ============ Chat ============
 @api_router.get("/chat/messages", response_model=List[ChatMessageOut])
 async def chat_history(store_id: str = Query(...), limit: int = 50, user=Depends(get_current_user)):

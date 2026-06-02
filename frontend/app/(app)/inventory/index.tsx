@@ -4,7 +4,7 @@ import {
   ActivityIndicator, RefreshControl, Alert, Image, Platform, Modal,
 } from "react-native";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
-import { router, useFocusEffect, useLocalSearchParams } from "expo-router";
+import { router, useFocusEffect, useLocalSearchParams, useRouter } from "expo-router";
 
 import { useSession } from "@/src/ctx/SessionProvider";
 import { colors, spacing, radius } from "@/src/theme/colors";
@@ -61,7 +61,7 @@ export default function InventoryScreen() {
       {tab === "products" && <ProductsTab apiStore={apiStore} isAdmin={!!isAdmin} scanned={params.scanned} />}
       {tab === "inventory" && <InventoryTab apiStore={apiStore} isAdmin={!!isAdmin} scanned={params.scanned} />}
       {tab === "shopping-list" && <ShoppingListTab apiStore={apiStore} isAdmin={!!isAdmin} storeName={storeName || "Store"} />}
-      {tab === "shopping" && <Placeholder title="Shopping" desc="Admin purchase flow coming next (Milestone D)." />}
+      {tab === "shopping" && <ShoppingTab apiStore={apiStore} isAdmin={!!isAdmin} storeName={storeName || "Store"} />}
     </SafeAreaView>
   );
 }
@@ -456,6 +456,299 @@ type StockRow = {
   updated_by: string;
   product?: { id: string; name: string; company?: string; size?: string; barcode?: string; selling_price?: number };
 };
+// ------------- Shopping (purchase execution) tab -------------
+type DraftShoppedItem = {
+  selected: boolean;
+  qty: number;
+  price: number;
+  ppt: "regular" | "deal" | "both";
+  supplier_id: string | null;
+  note: string;
+};
+
+const ShoppingTab: React.FC<{ apiStore: any; isAdmin: boolean; storeName: string }> = ({ apiStore, isAdmin, storeName }) => {
+  const insets = useSafeAreaInsets();
+  const router = useRouter();
+  const [lists, setLists] = useState<ShoppingList[]>([]);
+  const [activeListId, setActiveListId] = useState<string | null>(null);
+  const [items, setItems] = useState<ShoppingItem[]>([]);
+  const [suppliers, setSuppliers] = useState<SupplierLite[]>([]);
+  const [productThumbs, setProductThumbs] = useState<Record<string, string | null>>({});
+  const [productTaxPct, setProductTaxPct] = useState<Record<string, number>>({});
+  const [loading, setLoading] = useState(true);
+  const [supplierFilter, setSupplierFilter] = useState<string | null>(null);
+  const [supplierMenuOpen, setSupplierMenuOpen] = useState(false);
+  const [drafts, setDrafts] = useState<Record<string, DraftShoppedItem>>({});
+  const [busy, setBusy] = useState(false);
+
+  const load = useCallback(async () => {
+    try {
+      const [ls, sup, plist] = await Promise.all([
+        apiStore<ShoppingList[]>("/api/inventory/shopping-lists"),
+        apiStore<SupplierLite[]>("/api/inventory/suppliers"),
+        apiStore<ProductListItem[]>("/api/inventory/products?limit=500"),
+      ]);
+      setLists(ls); setSuppliers(sup);
+      const thumbs: Record<string, string | null> = {};
+      const taxes: Record<string, number> = {};
+      plist.forEach((p: any) => {
+        thumbs[p.id] = p.thumbnail || null;
+        taxes[p.id] = Number(p.tax_pct || 0);
+      });
+      setProductThumbs(thumbs); setProductTaxPct(taxes);
+      if (!activeListId && ls.length > 0) setActiveListId(ls[0].id);
+    } catch (e: any) { Alert.alert("Error", e.message); }
+    finally { setLoading(false); }
+  }, [apiStore, activeListId]);
+
+  const loadItems = useCallback(async () => {
+    if (!activeListId) return;
+    try {
+      const its = await apiStore<ShoppingItem[]>(`/api/inventory/shopping-list?list_id=${activeListId}`);
+      setItems(its);
+      setDrafts((prev) => {
+        const next: Record<string, DraftShoppedItem> = {};
+        for (const it of its) {
+          next[it.id] = prev[it.id] || {
+            selected: false,
+            qty: Math.max(0, Math.round(it.quantity || 0)),
+            price: Number(it.purchase_price || 0),
+            ppt: (it.purchase_price_type || "regular") as any,
+            supplier_id: it.supplier_id || null,
+            note: it.note || "",
+          };
+        }
+        return next;
+      });
+    } catch (e: any) { Alert.alert("Error", e.message); }
+  }, [apiStore, activeListId]);
+
+  useFocusEffect(useCallback(() => { load(); }, [load]));
+  useEffect(() => { loadItems(); }, [loadItems]);
+
+  const filtered = useMemo(() => {
+    if (!supplierFilter) return items;
+    return items.filter((i) => (i.supplier_id || null) === supplierFilter);
+  }, [items, supplierFilter]);
+
+  const supplierFilterLabel = !supplierFilter ? "All suppliers" : (suppliers.find((s) => s.id === supplierFilter)?.name || "Supplier");
+  const selectedIds = Object.entries(drafts).filter(([_, d]) => d.selected).map(([id]) => id);
+  const visibleSelected = filtered.filter((it) => drafts[it.id]?.selected);
+
+  const summary = useMemo(() => {
+    let count = 0; let subtotal = 0; let tax = 0;
+    for (const it of visibleSelected) {
+      const d = drafts[it.id]; if (!d) continue;
+      const line = d.qty * d.price;
+      const taxPct = it.product_id ? (productTaxPct[it.product_id] || 0) : 0;
+      count += 1;
+      subtotal += line;
+      tax += line * taxPct / 100;
+    }
+    return { count, subtotal, tax, total: subtotal + tax };
+  }, [visibleSelected, drafts, productTaxPct]);
+
+  const toggleAllVisible = (on: boolean) => {
+    setDrafts((d) => {
+      const c = { ...d };
+      for (const it of filtered) { if (c[it.id]) c[it.id] = { ...c[it.id], selected: on }; }
+      return c;
+    });
+  };
+  const updateDraft = (iid: string, patch: Partial<DraftShoppedItem>) => {
+    setDrafts((d) => ({ ...d, [iid]: { ...d[iid], ...patch } }));
+  };
+
+  const submitShopping = () => {
+    if (selectedIds.length === 0) {
+      Alert.alert("Nothing selected", "Select at least one item to mark as Shopped.");
+      return;
+    }
+    const payload = {
+      list_id: activeListId,
+      items: selectedIds.map((iid) => {
+        const d = drafts[iid];
+        return {
+          item_id: iid,
+          quantity: Math.max(0, Math.round(d.qty)),
+          purchase_price: d.price || 0,
+          purchase_price_type: d.ppt,
+          supplier_id: d.supplier_id,
+          note: d.note || "",
+        };
+      }),
+    };
+    Alert.alert(
+      "Confirm Shopping",
+      `Move ${selectedIds.length} item(s) to Shopped history?`,
+      [
+        { text: "Cancel", style: "cancel" },
+        {
+          text: "Submit", style: "default",
+          onPress: async () => {
+            try {
+              setBusy(true);
+              const res: any = await apiStore("/api/inventory/shopping/execute", { method: "POST", body: JSON.stringify(payload) });
+              Alert.alert("Shopped", `${res.count} item(s) saved. Total: $${(res.total_amount || 0).toFixed(2)}`);
+              setDrafts({});
+              await loadItems();
+            } catch (e: any) {
+              Alert.alert("Error", e.message || "Failed to submit");
+            } finally { setBusy(false); }
+          },
+        },
+      ]
+    );
+  };
+
+  if (loading) return <View style={{ flex: 1, alignItems: "center", justifyContent: "center" }}><ActivityIndicator color={colors.primary} /></View>;
+
+  return (
+    <View style={{ flex: 1, backgroundColor: colors.background }}>
+      <View style={styles.shopHeaderBar}>
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8, paddingHorizontal: spacing.md, paddingVertical: spacing.sm }}>
+          {lists.map((l) => (
+            <TouchableOpacity key={l.id} style={[styles.listChip, activeListId === l.id && styles.listChipActive]} onPress={() => setActiveListId(l.id)}>
+              <Text style={[styles.listChipText, activeListId === l.id && styles.listChipTextActive]}>{l.name}</Text>
+            </TouchableOpacity>
+          ))}
+        </ScrollView>
+        <TouchableOpacity style={styles.historyBtn} onPress={() => router.push("/inventory/shopped" as any)}>
+          <AppIcon name="clock" size={14} color={colors.primary} />
+          <Text style={styles.historyBtnText}>History</Text>
+        </TouchableOpacity>
+      </View>
+
+      <View style={[styles.filterBar, { paddingBottom: 8 }]}>
+        <TouchableOpacity style={styles.filterBtn} onPress={() => setSupplierMenuOpen(true)}>
+          <AppIcon name="filter" size={12} color={colors.text} />
+          <Text style={styles.filterText}>{supplierFilterLabel}</Text>
+          <AppIcon name="down" size={10} color={colors.textMuted} />
+        </TouchableOpacity>
+        <View style={{ flexDirection: "row", gap: 6 }}>
+          <TouchableOpacity style={styles.linkBtn} onPress={() => toggleAllVisible(true)}>
+            <Text style={styles.linkBtnText}>Select all</Text>
+          </TouchableOpacity>
+          <TouchableOpacity style={styles.linkBtn} onPress={() => toggleAllVisible(false)}>
+            <Text style={styles.linkBtnText}>Clear</Text>
+          </TouchableOpacity>
+        </View>
+      </View>
+
+      <FlatList
+        data={filtered}
+        keyExtractor={(it) => it.id}
+        contentContainerStyle={{ padding: spacing.md, paddingBottom: 200, gap: spacing.sm }}
+        keyboardShouldPersistTaps="handled"
+        ListEmptyComponent={
+          <View style={{ alignItems: "center", paddingVertical: 40 }}>
+            <AppIcon name="cart" size={32} color={colors.textLight} />
+            <Text style={{ color: colors.textMuted, marginTop: 8 }}>No items in this list</Text>
+          </View>
+        }
+        renderItem={({ item }) => {
+          const d = drafts[item.id];
+          if (!d) return null;
+          const taxPct = item.product_id ? (productTaxPct[item.product_id] || 0) : 0;
+          const lineTotal = d.qty * d.price;
+          const lineTax = lineTotal * taxPct / 100;
+          const lineTotalWithTax = lineTotal + lineTax;
+          const sup = suppliers.find((s) => s.id === d.supplier_id);
+          const thumbUri = item.product_id && productThumbs[item.product_id]
+            ? (productThumbs[item.product_id]!.startsWith("data:")
+              ? productThumbs[item.product_id]!
+              : `data:image/jpeg;base64,${productThumbs[item.product_id]}`)
+            : null;
+          return (
+            <View style={[styles.shopRowCard, d.selected && styles.shopRowCardSelected]}>
+              <View style={styles.shopRowHeader}>
+                <TouchableOpacity onPress={() => updateDraft(item.id, { selected: !d.selected })} style={styles.checkBox}>
+                  <View style={[styles.checkBoxInner, d.selected && styles.checkBoxOn]}>
+                    {d.selected && <AppIcon name="check" size={14} color="#fff" />}
+                  </View>
+                </TouchableOpacity>
+                <View style={styles.shopThumbBox}>
+                  {thumbUri ? <Image source={{ uri: thumbUri }} style={styles.shopThumbImg} /> : (
+                    <Text style={styles.shopThumbInit}>{((item.product_name || item.text || "?")[0] || "?").toUpperCase()}</Text>
+                  )}
+                </View>
+                <View style={{ flex: 1, minWidth: 0 }}>
+                  <Text style={styles.productName} numberOfLines={2}>{item.product_name || item.text}</Text>
+                  {taxPct > 0 && <Text style={styles.taxLabel}>Tax: {taxPct}%</Text>}
+                </View>
+              </View>
+
+              <View style={styles.shopFieldRow}>
+                <View style={styles.fieldGroup}>
+                  <Text style={styles.fieldLabel}>Qty</Text>
+                  <TextInput
+                    style={styles.smallInput}
+                    keyboardType="number-pad"
+                    value={d.qty ? String(d.qty) : ""}
+                    onChangeText={(v) => updateDraft(item.id, { qty: parseInt(v.replace(/[^0-9]/g, "") || "0", 10) || 0 })}
+                  />
+                </View>
+                <View style={[styles.fieldGroup, { flex: 1 }]}>
+                  <Text style={styles.fieldLabel}>Price</Text>
+                  <PriceInput
+                    value={d.price}
+                    onChangeNumber={(n) => updateDraft(item.id, { price: n })}
+                    inputStyle={{ width: undefined, flex: 1 }}
+                  />
+                </View>
+              </View>
+
+              <View style={styles.shopFieldRow}>
+                <View style={[styles.fieldGroup, { flex: 1 }]}>
+                  <Text style={styles.fieldLabel}>Supplier</Text>
+                  <Text style={styles.dimmedRow} numberOfLines={1}>{sup?.name || "— None —"}</Text>
+                </View>
+                <View style={styles.totalsBox}>
+                  <Text style={styles.lineTotalLabel}>Line total</Text>
+                  <Text style={styles.lineTotalVal}>${lineTotalWithTax.toFixed(2)}</Text>
+                  {taxPct > 0 && <Text style={styles.lineTaxNote}>incl ${lineTax.toFixed(2)} tax</Text>}
+                </View>
+              </View>
+            </View>
+          );
+        }}
+      />
+
+      <Modal visible={supplierMenuOpen} transparent animationType="fade" onRequestClose={() => setSupplierMenuOpen(false)}>
+        <TouchableOpacity activeOpacity={1} style={styles.modalBack} onPress={() => setSupplierMenuOpen(false)}>
+          <TouchableOpacity activeOpacity={1} style={[styles.modalBox, { maxHeight: "60%" }]} onPress={() => { /* swallow */ }}>
+            <Text style={styles.modalTitle}>Filter by supplier</Text>
+            <ScrollView keyboardShouldPersistTaps="always">
+              <TouchableOpacity style={[styles.optRow, !supplierFilter && { backgroundColor: "#DBEAFE" }]} onPress={() => { setSupplierFilter(null); setSupplierMenuOpen(false); }}>
+                <Text style={{ color: colors.text, fontWeight: !supplierFilter ? "700" : "500" }}>All suppliers</Text>
+              </TouchableOpacity>
+              {suppliers.map((s) => (
+                <TouchableOpacity key={s.id} style={[styles.optRow, supplierFilter === s.id && { backgroundColor: "#DBEAFE" }]} onPress={() => { setSupplierFilter(s.id); setSupplierMenuOpen(false); }}>
+                  <Text style={{ color: colors.text, fontWeight: supplierFilter === s.id ? "700" : "500" }}>{s.name}</Text>
+                </TouchableOpacity>
+              ))}
+            </ScrollView>
+          </TouchableOpacity>
+        </TouchableOpacity>
+      </Modal>
+
+      {summary.count > 0 && (
+        <View style={[styles.submitBar, { paddingBottom: Math.max(spacing.md, insets.bottom) }]}>
+          <View style={{ flex: 1 }}>
+            <Text style={styles.submitBarSummary}>{summary.count} item{summary.count > 1 ? "s" : ""} · Subtotal ${summary.subtotal.toFixed(2)}</Text>
+            <Text style={styles.submitBarTotal}>Total ${summary.total.toFixed(2)}{summary.tax > 0 ? `  (incl $${summary.tax.toFixed(2)} tax)` : ""}</Text>
+          </View>
+          <TouchableOpacity disabled={busy} onPress={submitShopping} style={[styles.submitGo, busy && { opacity: 0.5 }]}>
+            <AppIcon name="check" size={16} color="#fff" />
+            <Text style={styles.submitGoText}>Submit</Text>
+          </TouchableOpacity>
+        </View>
+      )}
+    </View>
+  );
+};
+
+
 
 const InventoryTab: React.FC<{ apiStore: any; isAdmin: boolean; scanned?: string }> = ({ apiStore, isAdmin, scanned }) => {
   const insets = useSafeAreaInsets();
@@ -1056,4 +1349,35 @@ const styles = StyleSheet.create({
     color: colors.text, backgroundColor: colors.surface, borderRadius: radius.sm,
     borderWidth: 1, borderColor: colors.border, textAlignVertical: "top",
   },
+
+  // Shopping tab (execute)
+  shopHeaderBar: { flexDirection: "row", alignItems: "center", backgroundColor: colors.card, borderBottomWidth: 1, borderColor: colors.border },
+  historyBtn: { flexDirection: "row", alignItems: "center", gap: 4, paddingHorizontal: spacing.md, paddingVertical: spacing.sm },
+  historyBtnText: { color: colors.primary, fontWeight: "700", fontSize: 13 },
+  shopRowCardSelected: { borderColor: colors.primary, backgroundColor: "#EFF6FF" },
+  checkBox: { padding: 4 },
+  checkBoxInner: {
+    width: 22, height: 22, borderRadius: 6, borderWidth: 2, borderColor: colors.border,
+    alignItems: "center", justifyContent: "center", backgroundColor: colors.surface,
+  },
+  checkBoxOn: { backgroundColor: colors.primary, borderColor: colors.primary },
+  taxLabel: { fontSize: 11, color: colors.textMuted, marginTop: 2 },
+  dimmedRow: { paddingVertical: 9, paddingHorizontal: 10, color: colors.textMuted, fontSize: 13, fontWeight: "600" },
+  totalsBox: { alignItems: "flex-end" },
+  lineTotalLabel: { fontSize: 11, fontWeight: "600", color: colors.textMuted, textTransform: "uppercase" },
+  lineTotalVal: { fontSize: 17, fontWeight: "800", color: colors.text },
+  lineTaxNote: { fontSize: 10, color: colors.textMuted },
+  submitBar: {
+    position: "absolute", left: 0, right: 0, bottom: 0,
+    flexDirection: "row", alignItems: "center", gap: spacing.sm,
+    paddingHorizontal: spacing.md, paddingTop: spacing.md,
+    backgroundColor: colors.card, borderTopWidth: 1, borderColor: colors.border,
+  },
+  submitBarSummary: { color: colors.textMuted, fontSize: 12, fontWeight: "600" },
+  submitBarTotal: { color: colors.text, fontSize: 17, fontWeight: "800" },
+  submitGo: {
+    flexDirection: "row", alignItems: "center", gap: 8,
+    backgroundColor: colors.primary, paddingHorizontal: 16, paddingVertical: 12, borderRadius: radius.md,
+  },
+  submitGoText: { color: "#fff", fontWeight: "800", fontSize: 14 },
 });
