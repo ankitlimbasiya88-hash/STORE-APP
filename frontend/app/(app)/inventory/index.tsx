@@ -231,7 +231,7 @@ const ShoppingListTab: React.FC<{ apiStore: any; isAdmin: boolean; storeName: st
       const headers = ["Product", "Quantity", "Supplier", "Category", "Price type", "Price", "Note"];
       const rows = filtered.map((it) => [
         it.product_name || it.text,
-        it.quantity,
+        Math.max(0, Math.round(it.quantity || 0)),
         it.supplier_id ? (suppliers.find((s) => s.id === it.supplier_id)?.name || "") : "",
         it.product_id ? (categories.find((c) => c.id === productCategoryId[it.product_id!])?.name || "") : "",
         it.purchase_price_type || "regular",
@@ -967,6 +967,10 @@ const InventoryTab: React.FC<{ apiStore: any; isAdmin: boolean; scanned?: string
   const [resetting, setResetting] = useState(false);
   const [drafts, setDrafts] = useState<Record<string, string>>({});
   const handledScanRef = React.useRef<string | null>(null);
+  // Scan result modal state
+  const [scanModal, setScanModal] = useState<null | { product: ProductListItem; qty: string; notFoundCode?: string }>(null);
+  const [scanLookupBusy, setScanLookupBusy] = useState(false);
+  const [scanSaving, setScanSaving] = useState(false);
 
   const load = useCallback(async () => {
     try {
@@ -986,26 +990,57 @@ const InventoryTab: React.FC<{ apiStore: any; isAdmin: boolean; scanned?: string
 
   useFocusEffect(useCallback(() => { load(); }, [load]));
 
-  // When returning from scanner with a barcode, find product and +1
+  // When returning from scanner with a barcode, fetch product details and open a
+  // confirmation modal. Tolerant lookup: try exact, then strip leading zero, then
+  // text-search as fallback. Never silently increments.
   useEffect(() => {
     if (!scanned || handledScanRef.current === scanned) return;
     handledScanRef.current = scanned;
     (async () => {
       try {
-        const list = await apiStore<ProductListItem[]>(`/api/inventory/products?barcode=${encodeURIComponent(scanned)}`);
-        if (list.length !== 1) {
-          Alert.alert("Not found", `No product with barcode "${scanned}".`);
+        setScanLookupBusy(true);
+        const raw = String(scanned).trim();
+        const variants = [raw];
+        if (/^0\d+$/.test(raw)) variants.push(raw.replace(/^0+/, ""));
+        if (raw.length >= 6 && /^\d+$/.test(raw)) variants.push("0" + raw);
+
+        let found: ProductListItem | null = null;
+        for (const v of variants) {
+          const list = await apiStore<ProductListItem[]>(`/api/inventory/products?barcode=${encodeURIComponent(v)}`);
+          if (list.length === 1) { found = list[0]; break; }
+        }
+        if (!found && /^\d{4,}$/.test(raw)) {
+          // try fuzzy text search by barcode digits as last resort
+          const list = await apiStore<ProductListItem[]>(`/api/inventory/products?q=${encodeURIComponent(raw)}&limit=2`);
+          if (list.length === 1) found = list[0];
+        }
+        if (!found) {
+          setScanModal({ product: null as any, qty: "1", notFoundCode: raw });
           return;
         }
-        await apiStore("/api/inventory/stock/increment", {
-          method: "POST",
-          body: JSON.stringify({ product_id: list[0].id, delta: 1 }),
-        });
-        await load();
+        const existing = rows.find((r) => r.product_id === found!.id);
+        setScanModal({ product: found, qty: String(Math.max(0, Math.round((existing?.quantity || 0) + 1))) });
       } catch (e: any) { Alert.alert("Error", e.message); }
+      finally { setScanLookupBusy(false); }
     })();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [scanned]);
+
+  const saveScannedQty = async () => {
+    if (!scanModal?.product) return;
+    const q = Math.max(0, parseInt(scanModal.qty || "0", 10) || 0);
+    try {
+      setScanSaving(true);
+      await apiStore("/api/inventory/stock/set", {
+        method: "POST",
+        body: JSON.stringify({ product_id: scanModal.product.id, quantity: q }),
+      });
+      setScanModal(null);
+      await load();
+    } catch (e: any) {
+      Alert.alert("Error", e.message || "Failed to save");
+    } finally { setScanSaving(false); }
+  };
 
   const setQuantity = async (productId: string, qty: number) => {
     try {
@@ -1177,6 +1212,97 @@ const InventoryTab: React.FC<{ apiStore: any; isAdmin: boolean; scanned?: string
           </TouchableOpacity>
         </View>
       )}
+
+      {/* Scan-result modal (Inventory Count flow) */}
+      <Modal visible={scanLookupBusy || !!scanModal} transparent animationType="fade" onRequestClose={() => setScanModal(null)}>
+        <TouchableOpacity activeOpacity={1} style={styles.modalBack} onPress={() => !scanSaving && setScanModal(null)}>
+          <TouchableOpacity activeOpacity={1} style={[styles.modalBox, { maxWidth: 460 }]} onPress={() => { /* swallow */ }}>
+            {scanLookupBusy ? (
+              <View style={{ alignItems: "center", paddingVertical: 30 }}>
+                <ActivityIndicator color={colors.primary} />
+                <Text style={{ color: colors.textMuted, marginTop: 8 }}>Looking up product…</Text>
+              </View>
+            ) : scanModal?.notFoundCode ? (
+              <>
+                <Text style={styles.modalTitle}>Product not found</Text>
+                <Text style={{ color: colors.textMuted, marginBottom: 16 }}>
+                  No product matches barcode <Text style={{ fontWeight: "700", color: colors.text }}>{scanModal.notFoundCode}</Text>.
+                </Text>
+                <View style={{ flexDirection: "row", gap: 8, justifyContent: "flex-end" }}>
+                  <TouchableOpacity onPress={() => setScanModal(null)} style={styles.modalCancelBtn}>
+                    <Text style={{ color: colors.textMuted, fontWeight: "700" }}>Close</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    onPress={() => {
+                      const code = scanModal.notFoundCode;
+                      setScanModal(null);
+                      router.push({ pathname: "/(app)/inventory/product/new" as any, params: { barcode: code } });
+                    }}
+                    style={styles.modalPrimaryBtn}
+                  >
+                    <Text style={{ color: "#fff", fontWeight: "700" }}>Create product</Text>
+                  </TouchableOpacity>
+                </View>
+              </>
+            ) : scanModal?.product ? (
+              <>
+                <Text style={styles.modalTitle}>Inventory count</Text>
+                <View style={styles.scanCard}>
+                  <View style={styles.scanThumb}>
+                    {scanModal.product.thumbnail ? (
+                      <Image
+                        source={{ uri: scanModal.product.thumbnail.startsWith("data:") ? scanModal.product.thumbnail : `data:image/jpeg;base64,${scanModal.product.thumbnail}` }}
+                        style={{ width: "100%", height: "100%" }}
+                      />
+                    ) : (
+                      <Text style={styles.scanThumbInit}>{(scanModal.product.name?.[0] || "?").toUpperCase()}</Text>
+                    )}
+                  </View>
+                  <View style={{ flex: 1, minWidth: 0 }}>
+                    <Text style={styles.scanName} numberOfLines={2}>{scanModal.product.name}</Text>
+                    <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8, marginTop: 4 }}>
+                      {!!scanModal.product.size && <Text style={styles.scanMeta}>📦 {scanModal.product.size}</Text>}
+                      {!!scanModal.product.company && <Text style={styles.scanMeta}>🏭 {scanModal.product.company}</Text>}
+                      {!!scanModal.product.category_id && <Text style={styles.scanMeta}>🏷 {categories.find((c) => c.id === scanModal.product.category_id)?.name || ""}</Text>}
+                      {scanModal.product.selling_price != null && <Text style={styles.scanMeta}>💰 ${Number(scanModal.product.selling_price).toFixed(2)}</Text>}
+                    </View>
+                    <Text style={styles.scanBarcode} numberOfLines={1}>Barcode: {scanModal.product.barcode || "—"}</Text>
+                  </View>
+                </View>
+                <View style={{ flexDirection: "row", alignItems: "center", gap: 12, marginTop: 16 }}>
+                  <Text style={[styles.fieldLabel, { fontSize: 13 }]}>NEW COUNT</Text>
+                  <TouchableOpacity
+                    onPress={() => setScanModal(m => m ? { ...m, qty: String(Math.max(0, (parseInt(m.qty || "0", 10) || 0) - 1)) } : m)}
+                    style={styles.qtyStep}
+                  >
+                    <Text style={styles.qtyStepText}>−</Text>
+                  </TouchableOpacity>
+                  <TextInput
+                    style={[styles.smallInput, { width: 90, fontSize: 18 }]}
+                    keyboardType="number-pad"
+                    value={scanModal.qty}
+                    onChangeText={(v) => setScanModal(m => m ? { ...m, qty: v.replace(/[^0-9]/g, "") } : m)}
+                  />
+                  <TouchableOpacity
+                    onPress={() => setScanModal(m => m ? { ...m, qty: String((parseInt(m.qty || "0", 10) || 0) + 1) } : m)}
+                    style={styles.qtyStep}
+                  >
+                    <Text style={styles.qtyStepText}>+</Text>
+                  </TouchableOpacity>
+                </View>
+                <View style={{ flexDirection: "row", gap: 8, justifyContent: "flex-end", marginTop: 18 }}>
+                  <TouchableOpacity onPress={() => setScanModal(null)} disabled={scanSaving} style={styles.modalCancelBtn}>
+                    <Text style={{ color: colors.textMuted, fontWeight: "700" }}>Cancel</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity onPress={saveScannedQty} disabled={scanSaving} style={[styles.modalPrimaryBtn, scanSaving && { opacity: 0.5 }]}>
+                    {scanSaving ? <ActivityIndicator color="#fff" /> : <Text style={{ color: "#fff", fontWeight: "700" }}>Save count</Text>}
+                  </TouchableOpacity>
+                </View>
+              </>
+            ) : null}
+          </TouchableOpacity>
+        </TouchableOpacity>
+      </Modal>
     </View>
   );
 };
@@ -1396,11 +1522,12 @@ const styles = StyleSheet.create({
   btnLabel: { color: "#fff", fontSize: 13, fontWeight: "700" },
   headerTitle: { color: "#fff", fontSize: 18, fontWeight: "700" },
 
-  tabBarWrap: { flexGrow: 0, backgroundColor: colors.card, borderBottomWidth: 1, borderBottomColor: colors.border },
-  tabBar: { paddingHorizontal: spacing.md, gap: spacing.sm, paddingVertical: spacing.sm },
+  tabBarWrap: { flexGrow: 0, backgroundColor: colors.card, borderBottomWidth: 1, borderBottomColor: colors.border, minHeight: 56 },
+  tabBar: { paddingHorizontal: spacing.md, gap: spacing.sm, paddingVertical: spacing.sm, alignItems: "center" },
   tabBtn: {
-    paddingHorizontal: 14, paddingVertical: 8, borderRadius: 999,
+    paddingHorizontal: 14, paddingVertical: 10, borderRadius: 999,
     backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border,
+    minHeight: 40, justifyContent: "center",
   },
   tabBtnActive: { backgroundColor: colors.primary, borderColor: colors.primary },
   tabText: { color: colors.text, fontSize: 13, fontWeight: "600" },
@@ -1593,4 +1720,27 @@ const styles = StyleSheet.create({
     borderWidth: 1, borderColor: colors.primary, backgroundColor: colors.primary,
   },
   exportBtnText: { color: "#fff", fontWeight: "700", fontSize: 12 },
+
+  // Scan-result modal
+  modalCancelBtn: { paddingHorizontal: 14, paddingVertical: 10, borderRadius: radius.sm, borderWidth: 1, borderColor: colors.border },
+  modalPrimaryBtn: { paddingHorizontal: 16, paddingVertical: 10, borderRadius: radius.sm, backgroundColor: colors.primary },
+  scanCard: {
+    flexDirection: "row", gap: 12, padding: 12, marginTop: 8,
+    backgroundColor: colors.surface, borderRadius: radius.md,
+    borderWidth: 1, borderColor: colors.border,
+  },
+  scanThumb: {
+    width: 72, height: 72, borderRadius: radius.sm, backgroundColor: colors.card,
+    alignItems: "center", justifyContent: "center", overflow: "hidden",
+    borderWidth: 1, borderColor: colors.border,
+  },
+  scanThumbInit: { fontSize: 28, fontWeight: "800", color: colors.textMuted },
+  scanName: { color: colors.text, fontWeight: "700", fontSize: 15 },
+  scanMeta: { color: colors.textMuted, fontSize: 12, fontWeight: "600" },
+  scanBarcode: { color: colors.textLight, fontSize: 11, marginTop: 4, fontFamily: Platform.select({ ios: "Menlo", android: "monospace", default: "monospace" }) },
+  qtyStep: {
+    width: 40, height: 40, borderRadius: 8, alignItems: "center", justifyContent: "center",
+    backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border,
+  },
+  qtyStepText: { fontSize: 22, fontWeight: "800", color: colors.text, lineHeight: 24 },
 });

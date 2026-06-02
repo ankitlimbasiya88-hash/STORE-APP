@@ -807,7 +807,7 @@ async def submit_stock(store_id: str = Query(...), user=Depends(get_current_user
             await db.shopping_list.insert_one({
                 "id": str(uuid.uuid4()), "store_id": store_id, "list_id": cont["id"],
                 "product_id": s["product_id"], "product_name": s["name"],
-                "text": "", "quantity": s["quantity"], "note": "auto: low stock",
+                "text": "", "quantity": s["quantity"], "note": "",
                 "status": "pending", "supplier_id": None,
                 "purchase_price_type": ppt, "purchase_price": None,
                 "source": "inventory", "added_by": user["name"],
