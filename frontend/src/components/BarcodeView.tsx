@@ -22,18 +22,34 @@ type Props = {
   format?: "CODE128" | "EAN13" | "EAN8" | "UPC" | "CODE39" | "auto";
 };
 
-/** Choose the right encoder class based on value length / characters. */
+/** Choose the right encoder class based on value length / characters.
+ * Important: EAN/UPC formats validate check digits, so a user-entered code
+ * like "1234567890123" will fail validation. We only auto-pick EAN/UPC when
+ * the value already has a valid check digit; otherwise we fall back to
+ * Code128 which accepts any printable ASCII and is universally scannable. */
 function pickEncoder(value: string, format: Props["format"]) {
   const v = (value || "").trim();
-  if (format === "EAN13" && /^\d{12,13}$/.test(v)) return new barcodes.EAN13(v, {});
-  if (format === "EAN8" && /^\d{7,8}$/.test(v)) return new barcodes.EAN8(v, {});
-  if (format === "UPC" && /^\d{11,12}$/.test(v)) return new barcodes.UPC(v, {});
+  // Explicit format requested
+  if (format === "EAN13") return new barcodes.EAN13(v, {});
+  if (format === "EAN8") return new barcodes.EAN8(v, {});
+  if (format === "UPC") return new barcodes.UPC(v, {});
   if (format === "CODE39") return new barcodes.CODE39(v, { mod43: false });
   if (format === "CODE128") return new barcodes.CODE128(v, {});
-  // auto: try common retail formats first
-  if (/^\d{13}$/.test(v)) return new barcodes.EAN13(v, {});
-  if (/^\d{12}$/.test(v)) return new barcodes.UPC(v, {});
-  if (/^\d{8}$/.test(v)) return new barcodes.EAN8(v, {});
+
+  // Auto: try retail formats but only keep them if check digit validates.
+  // Otherwise fall back to Code128 which accepts ANY value.
+  if (/^\d{13}$/.test(v)) {
+    const e = new barcodes.EAN13(v, {});
+    if (e.valid()) return e;
+  }
+  if (/^\d{12}$/.test(v)) {
+    const e = new barcodes.UPC(v, {});
+    if (e.valid()) return e;
+  }
+  if (/^\d{8}$/.test(v)) {
+    const e = new barcodes.EAN8(v, {});
+    if (e.valid()) return e;
+  }
   return new barcodes.CODE128(v, {});
 }
 
@@ -52,8 +68,8 @@ export const BarcodeView: React.FC<Props> = ({
     try {
       const enc = pickEncoder(v, format);
       if (!enc.valid()) {
-        // Fallback to CODE128 (accepts any printable ASCII).
-        const enc2 = new barcodes.CODE128.CODE128AUTO(v, {});
+        // Last-resort: Code128 accepts any printable ASCII
+        const enc2 = new barcodes.CODE128(v, {});
         if (!enc2.valid()) return { binary: "", displayText: v, ok: false };
         const r2 = enc2.encode();
         return { binary: r2.data, displayText: r2.text || v, ok: true };

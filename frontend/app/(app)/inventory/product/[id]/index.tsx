@@ -71,7 +71,7 @@ export default function ProductDetailScreen() {
   }
 
   if (error || !product) {
-    const is404 = (error || "").includes("404");
+    const is404 = (error || "").toLowerCase().includes("not found") || (error || "").includes("404");
     return (
       <SafeAreaView style={styles.container} edges={["top"]}>
         <View style={styles.header}>
