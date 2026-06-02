@@ -1,0 +1,29 @@
+{
+  "summary": "Re-verified shopped records fixes: rounding via Decimal money_round() and sort by shopped_at. Ran pytest backend/tests/test_shopped_records.py — 7/7 PASSED including the previously failing TestHappyPath::test_execute_single_item_with_tax (now correctly returns total_amount=27.13, tax_amount=2.13, total_with_tax=27.13). No frontend or other regression suites executed per request.",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [],
+    "react_native_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_shopped_records.py",
+    "/app/test_reports/pytest/shopped_records_iter9.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "money_round() correctly uses Decimal(str(v)).quantize(Decimal('0.01'), ROUND_HALF_UP) — proper banker's-safe HALF_UP rounding for currency.",
+    "get_shopped_batch now sorts by shopped_at which matches the semantic of when items were shopped rather than created_at."
+  ],
+  "updated_files": [],
+  "success_rate": {"backend": "100%", "frontend": "not tested"},
+  "seed_data_creation": "None — used existing seed/admin fixtures from test file.",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "test_shopped_records.py reads EXPO_PUBLIC_BACKEND_URL from env (matches frontend/.env key). When running pytest manually, export EXPO_PUBLIC_BACKEND_URL=<preview-url> first. Public URL: https://store-manager-pro-9.preview.emergentagent.com. All 7 shopped-record tests green in 5.19s.",
+  "rca_of_issue": "Previous iteration's failure (expected 27.13, got 27.12) was due to standard float round() banker's rounding edge case on 27.125. Replacing with Decimal-based HALF_UP rounding fixes the cent drift across purchase_price, line_total, tax_amount, total_with_tax, and total_amount. Verified by re-running the exact failing case."
+}

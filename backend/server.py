@@ -15,6 +15,12 @@ from pydantic import BaseModel, Field
 from typing import List, Optional, Literal, Annotated, Dict, Any, Union
 from datetime import datetime, timezone, timedelta
 import math
+from decimal import Decimal, ROUND_HALF_UP
+
+
+def money_round(v: float) -> float:
+    """Round to 2 decimal places using half-away-from-zero (standard money rules)."""
+    return float(Decimal(str(v)).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP))
 
 
 ROOT_DIR = Path(__file__).parent
@@ -1608,11 +1614,11 @@ async def execute_shopping(
             "text": item.get("text", ""),
             "quantity": qty,
             "purchase_price_type": ip.purchase_price_type,
-            "purchase_price": round(price, 2),
+            "purchase_price": money_round(price),
             "tax_pct": tax_pct,
-            "line_total": round(line_total, 2),
-            "tax_amount": round(tax_amount, 2),
-            "total_with_tax": round(total_with_tax, 2),
+            "line_total": money_round(line_total),
+            "tax_amount": money_round(tax_amount),
+            "total_with_tax": money_round(total_with_tax),
             "note": ip.note or item.get("note", ""),
             "shopped_at": now,
             "shopped_by": user["name"],
@@ -1629,7 +1635,7 @@ async def execute_shopping(
     return {
         "batch_id": batch_id,
         "count": len(records),
-        "total_amount": round(total_amount, 2),
+        "total_amount": money_round(total_amount),
     }
 
 
@@ -1654,7 +1660,7 @@ async def list_shopped_records(
 @api_router.get("/inventory/shopped/batch/{batch_id}", response_model=List[ShoppedRecord])
 async def get_shopped_batch(batch_id: str, store_id: str = Query(...), user=Depends(get_current_user)):
     await require_store_access(user, store_id)
-    cursor = db.shopped_records.find({"batch_id": batch_id, "store_id": store_id}, {"_id": 0}).sort("created_at", 1)
+    cursor = db.shopped_records.find({"batch_id": batch_id, "store_id": store_id}, {"_id": 0}).sort("shopped_at", 1)
     return [ShoppedRecord(**doc) async for doc in cursor]
 
 
