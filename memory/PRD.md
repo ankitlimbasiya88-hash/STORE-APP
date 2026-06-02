@@ -60,7 +60,19 @@ Cash Accounting label finalised. New "Inventory & Orders" module with **4-tab st
 - Shopping List screen UI (backend is now live ✅)
 - Shopping screen (admin records actual purchases — auto-updates stock + adds to purchase_prices history)
 
-## Phase 3 polish (iter 3.1)
+## Shopping List polish (iter 3.1.1)
+- Shopping List row redesigned for clarity & one-handed use:
+  - 44×44 product thumbnail (base64 from `/api/inventory/products?...` thumbnail) on the left, falls back to first letter
+  - Labeled fields: **QTY · SUPPLIER · PURCHASE PRICE TYPE · PRICE · NOTES**
+  - Inline **Notes** textarea on every row (no more shrunken extra row)
+  - Purchase Price Type dropdown now has **3 options**: Regular / Deal / **Both (regular + deal)**
+  - Highlighted background per type — Regular = neutral, Deal = amber, Both = light blue
+- Dropdown modals fixed: inner box wrapped in a tap-swallowing TouchableOpacity so taps inside the modal no longer close it accidentally.
+- Backend `ShoppingListItemCreate.purchase_price_type` and `ShoppingListItemUpdate.purchase_price_type` now accept `Literal["regular","deal","both"]`. `submit_stock` and `create_shopping_item` preserve the product's PPT verbatim (no longer coerced down to regular/deal).
+- PDF report (`buildShoppingHtml`) now prints "Both" label when applicable.
+
+Backend test status: **40/40 passing** (13 new + 27 phase 5 regression).
+
 1. **Auto-generated barcode image** — admin no longer needs to capture a camera photo of the barcode. Once a barcode value is entered/scanned, a scannable Code128 barcode is rendered (via `react-native-svg` and a small JS Code128 encoder) and shown alongside product photos in the gallery.
 2. **Read-only product detail page (`product/[id]/index.tsx`)** — opens by default on tap/scan with a "Modify" button (admin only) leading to the editable form at `product/[id]/edit.tsx`.
 3. **Keywords auto-derived on backend** — manual keywords field removed from UI. Server computes keywords from name + company + selling_price (numeric and float forms) + category name on every create/update.

@@ -1272,7 +1272,7 @@ class ShoppingListItem(BaseModel):
     note: str = ""
     status: str = "pending"
     supplier_id: Optional[str] = None
-    purchase_price_type: Optional[str] = None  # "regular" | "deal" | None
+    purchase_price_type: Optional[str] = None  # "regular" | "deal" | "both" | None
     purchase_price: Optional[float] = None
     source: str = "manual"                      # manual | inventory
     added_by: str
