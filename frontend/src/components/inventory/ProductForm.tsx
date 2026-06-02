@@ -16,6 +16,7 @@ import { router } from "expo-router";
 import { useSession } from "@/src/ctx/SessionProvider";
 import { colors, spacing, radius } from "@/src/theme/colors";
 import { AppIcon } from "@/src/components/AppIcon";
+import { PriceInput } from "@/src/components/PriceInput";
 import BarcodeView from "@/src/components/BarcodeView";
 import {
   Product, PurchasePriceEntry, Supplier, Taxonomy, sortPricesAsc, priceStats,
@@ -393,7 +394,12 @@ export default function ProductForm({ mode, initial, initialBarcode, onSaved }: 
           <Section title="Pricing">
             <Row>
               <Field label="Selling price ($)" half>
-                <TextInput style={styles.input} keyboardType="decimal-pad" placeholder="0.00" placeholderTextColor={colors.textLight} value={sellingPrice} onChangeText={setSellingPrice} editable={!readOnly} />
+                <PriceInput
+                  value={parseFloat(sellingPrice) || 0}
+                  onChangeNumber={(n) => setSellingPrice(n ? String(n) : "")}
+                  editable={!readOnly}
+                  inputStyle={{ fontSize: 14, fontWeight: "600", textAlign: "left", paddingLeft: 6 }}
+                />
               </Field>
               <Field label="Ideal margin (%)" half>
                 <TextInput style={styles.input} keyboardType="decimal-pad" placeholder="0" placeholderTextColor={colors.textLight} value={idealMargin} onChangeText={setIdealMargin} editable={!readOnly} />
@@ -556,7 +562,13 @@ export default function ProductForm({ mode, initial, initialBarcode, onSaved }: 
         <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : undefined} style={styles.modalBack}>
           <View style={styles.modalBox}>
             <Text style={styles.modalTitle}>Add purchase price</Text>
-            <TextInput style={styles.input} keyboardType="decimal-pad" placeholder="Price" placeholderTextColor={colors.textLight} value={newPrice} onChangeText={setNewPrice} autoFocus />
+            <PriceInput
+              value={parseFloat(newPrice) || 0}
+              onChangeNumber={(n) => setNewPrice(n ? String(n) : "")}
+              autoFocus
+              style={{ paddingHorizontal: 12 }}
+              inputStyle={{ fontSize: 16, fontWeight: "700", textAlign: "left", paddingLeft: 6 }}
+            />
             <Picker
               options={suppliers.map((s) => ({ id: s.id, label: s.name }))}
               value={newPriceSupplier}

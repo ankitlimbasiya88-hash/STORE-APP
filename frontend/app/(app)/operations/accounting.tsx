@@ -6,6 +6,7 @@ import {
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { AppIcon } from "@/src/components/AppIcon";
+import { PriceInput } from "@/src/components/PriceInput";
 import { router } from "expo-router";
 
 import { useSession } from "@/src/ctx/SessionProvider";
@@ -335,17 +336,14 @@ export default function AccountingScreen() {
             </Text>
           ) : (
             <View style={styles.amountWrap}>
-              <Text style={styles.currency}>{CURRENCY}</Text>
-              <TextInput
+              <PriceInput
                 testID={`amount-${h.id}`}
-                style={styles.amountInput}
-                keyboardType="decimal-pad"
-                placeholder="0"
-                placeholderTextColor={colors.textLight}
-                value={amounts[h.id] ?? ""}
-                onChangeText={(v) => setAmounts((prev) => ({ ...prev, [h.id]: v }))}
-                onBlur={() => (hasNotes ? saveSingleWithNote(h.id) : saveAmount(h.id, amounts[h.id] ?? "0"))}
+                value={parseFloat(amounts[h.id] || "0") || 0}
+                onChangeNumber={(n) => setAmounts((prev) => ({ ...prev, [h.id]: n ? String(n) : "" }))}
+                onCommit={(n) => (hasNotes ? saveSingleWithNote(h.id) : saveAmount(h.id, String(n)))}
                 editable={!data!.submitted}
+                currency={CURRENCY}
+                inputStyle={{ fontSize: 17, fontWeight: "700" }}
               />
             </View>
           )}
@@ -404,19 +402,14 @@ export default function AccountingScreen() {
                     />
                   </View>
                   <View style={styles.multiAmountWrap}>
-                    <Text style={styles.currency}>{CURRENCY}</Text>
-                    <TextInput
+                    <PriceInput
                       testID={`multi-amount-${h.id}-${idx}`}
-                      style={styles.multiAmountInput}
-                      keyboardType="decimal-pad"
-                      placeholder="0"
-                      placeholderTextColor={colors.textLight}
-                      value={it.amount ? String(it.amount) : ""}
-                      onChangeText={(v) =>
-                        updateMultiItem(h.id, idx, { amount: parseFloat(v.replace(/[^0-9.]/g, "")) || 0 })
-                      }
-                      onBlur={() => saveMulti(h.id, multiItems[h.id] || [])}
+                      value={Number(it.amount) || 0}
+                      onChangeNumber={(n) => updateMultiItem(h.id, idx, { amount: n })}
+                      onCommit={() => saveMulti(h.id, multiItems[h.id] || [])}
                       editable={!data!.submitted}
+                      currency={CURRENCY}
+                      inputStyle={{ fontSize: 15, fontWeight: "700" }}
                     />
                   </View>
                   {!data!.submitted && (

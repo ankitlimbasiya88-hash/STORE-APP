@@ -9,6 +9,7 @@ import { router, useFocusEffect, useLocalSearchParams } from "expo-router";
 import { useSession } from "@/src/ctx/SessionProvider";
 import { colors, spacing, radius } from "@/src/theme/colors";
 import { AppIcon } from "@/src/components/AppIcon";
+import { PriceInput } from "@/src/components/PriceInput";
 import { ProductListItem } from "@/src/utils/inventory";
 
 type TabKey = "products" | "inventory" | "shopping-list" | "shopping";
@@ -310,9 +311,10 @@ const ShoppingItemRow: React.FC<{
   onUpdate: (iid: string, patch: Partial<ShoppingItem>) => void;
   onDelete: () => void;
 }> = ({ item, suppliers, thumbnail, onUpdate, onDelete }) => {
-  const [qty, setQty] = useState(String(item.quantity || ""));
+  // quantities are whole units in this app (forces int even when DB has decimals)
+  const initialQty = Math.max(0, Math.round(item.quantity || 0));
+  const [qty, setQty] = useState(initialQty ? String(initialQty) : "");
   const [note, setNote] = useState(item.note || "");
-  const [price, setPrice] = useState(item.purchase_price != null ? String(item.purchase_price) : "");
   const [supOpen, setSupOpen] = useState(false);
   const [ptOpen, setPtOpen] = useState(false);
   const sup = suppliers.find((s) => s.id === item.supplier_id);
@@ -321,10 +323,10 @@ const ShoppingItemRow: React.FC<{
   const ptColor = pt === "deal" ? "#FEF3C7" : pt === "both" ? "#DBEAFE" : colors.surface;
 
   useEffect(() => {
-    setQty(String(item.quantity || ""));
+    const n = Math.max(0, Math.round(item.quantity || 0));
+    setQty(n ? String(n) : "");
     setNote(item.note || "");
-    setPrice(item.purchase_price != null ? String(item.purchase_price) : "");
-  }, [item.quantity, item.note, item.purchase_price]);
+  }, [item.quantity, item.note]);
 
   const thumbUri = thumbnail ? (thumbnail.startsWith("data:") ? thumbnail : `data:image/jpeg;base64,${thumbnail}`) : null;
 
@@ -378,18 +380,13 @@ const ShoppingItemRow: React.FC<{
         </View>
         <View style={styles.fieldGroup}>
           <Text style={styles.fieldLabel}>Price</Text>
-          <View style={styles.priceWrap}>
-            <Text style={styles.priceDollar}>$</Text>
-            <TextInput
-              style={styles.priceInput}
-              keyboardType="decimal-pad"
-              placeholder="0.00"
-              placeholderTextColor={colors.textLight}
-              value={price}
-              onChangeText={setPrice}
-              onBlur={() => { const n = price === "" ? null : (parseFloat(price) || 0); if (n !== item.purchase_price) onUpdate(item.id, { purchase_price: n as any }); }}
-            />
-          </View>
+          <PriceInput
+            value={item.purchase_price ?? null}
+            onChangeNumber={() => { /* defer commit to onBlur */ }}
+            onCommit={(n) => { if (n !== (item.purchase_price ?? 0)) onUpdate(item.id, { purchase_price: (n || null) as any }); }}
+            style={{ minWidth: 90 }}
+            inputStyle={{ width: 70 }}
+          />
         </View>
       </View>
 
@@ -625,8 +622,8 @@ const InventoryTab: React.FC<{ apiStore: any; isAdmin: boolean; scanned?: string
           </View>
         )}
         renderItem={({ item }) => {
-          const qty = countByPid[item.id] || 0;
-          const draftVal = drafts[item.id] !== undefined ? drafts[item.id] : String(qty);
+          const qty = Math.max(0, Math.round(countByPid[item.id] || 0));
+          const draftVal = drafts[item.id] !== undefined ? drafts[item.id] : (qty ? String(qty) : "0");
           return (
             <View style={styles.stockCard}>
               <View style={{ flex: 1, minWidth: 0 }}>
@@ -650,16 +647,16 @@ const InventoryTab: React.FC<{ apiStore: any; isAdmin: boolean; scanned?: string
                 <TextInput
                   style={styles.qtyInput}
                   value={draftVal}
-                  keyboardType="decimal-pad"
+                  keyboardType="number-pad"
                   selectTextOnFocus
                   onChangeText={(v) => {
-                    // keep typed value locally; don't call API on every keystroke
-                    setDrafts((d) => ({ ...d, [item.id]: v.replace(/[^0-9.]/g, "") }));
+                    // integer qty only — strip everything that isn't a digit
+                    setDrafts((d) => ({ ...d, [item.id]: v.replace(/[^0-9]/g, "") }));
                   }}
                   onBlur={() => {
                     const txt = drafts[item.id];
                     if (txt === undefined) return; // nothing changed
-                    const n = parseFloat(txt) || 0;
+                    const n = parseInt(txt || "0", 10) || 0;
                     setDrafts((d) => { const c = { ...d }; delete c[item.id]; return c; });
                     if (n !== qty) setQuantity(item.id, n);
                   }}

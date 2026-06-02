@@ -14,6 +14,7 @@ from pathlib import Path
 from pydantic import BaseModel, Field
 from typing import List, Optional, Literal, Annotated, Dict, Any, Union
 from datetime import datetime, timezone, timedelta
+import math
 
 
 ROOT_DIR = Path(__file__).parent
@@ -1461,7 +1462,7 @@ async def submit_stock(store_id: str = Query(...), user=Depends(get_current_user
         deficit = target - on_hand
         if deficit <= 0.0001:
             continue
-        order_qty = round(deficit, 4)
+        order_qty = max(1, int(math.ceil(deficit)))
         suggestions.append({"product_id": p["id"], "name": p["name"], "quantity": order_qty, "purchase_price_type": p.get("purchase_price_type", "regular")})
     # Apply "top up to max" — replace existing continuous-list entry for same product
     now = datetime.now(timezone.utc).isoformat()

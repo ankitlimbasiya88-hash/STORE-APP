@@ -1,0 +1,40 @@
+{
+  "summary": "Iteration 7 backend-only regression for the submit_stock integer-ceiling change (server.py:17 `import math`, server.py:1465 `order_qty = max(1, int(math.ceil(deficit)))`). Result: 59/59 PASS — 5 new ceiling-behavior tests + 27 phase5 inventory + 13 phase3 'both' PPT + 14 accounting_v3. (a) Fractional deficit: product per_day=10/7 (=1.4286), max_inventory_days=4, on_hand=0 -> deficit≈5.714 -> continuous-list entry quantity == 6 (integer), confirmed NOT 5.7143 and NOT 5. (b) Zero deficit (no avg_sales / max_days=0) -> NO continuous-list entry created (target<=0 short-circuit at server.py:1460 still works). (c) Tiny deficit per_day=0.1, max_days=1 -> deficit=0.1 -> ceil=1, max(1,1)=1 -> row IS created with qty=1. (d) Exact integer target (per_day=2, max_days=7) -> qty=14 unchanged. (e) Full prior Phase 5 + Phase 3 'both' + accounting_v3 suites re-run green; the previous quantity assertion in test_shopping_list_both_ppt.py (==14.0) still passes since 14==14.0 in Python. No regressions detected from math.ceil change.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [],
+    "react_native_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_submit_stock_ceiling.py",
+    "/app/test_reports/pytest/iter7_ceiling.xml",
+    "/app/test_reports/pytest/iter7_regression.xml"
+  ],
+  "action_items": [
+    "No backend blockers. The submit_stock integer-ceiling change is verified end-to-end. Continuous-list entries created via /api/inventory/stock/submit now always carry integer quantities (>=1).",
+    "Minor: documentation/cosmetic — the inline comment at server.py:1275 (carried over from iter 6) still says `# 'regular' | 'deal' | None` but Literal allows 'both'. No functional impact.",
+    "Carried over (non-blocker, tech debt): server.py is ~1638 lines; consider router split (stores/auth/users/checklists/accounting/inventory/chat)."
+  ],
+  "critical_code_review_comments": [
+    "server.py:17 `import math` is correctly placed at module level alongside other stdlib imports — no per-request import overhead.",
+    "server.py:1465 `order_qty = max(1, int(math.ceil(deficit)))` — correct: math.ceil handles floats safely (e.g., 0.1 -> 1, 5.714 -> 6), int() narrows to int, max(1, ...) is defensive belt-and-suspenders since ceil of any positive float >=epsilon is already >=1. The earlier check at server.py:1463 `if deficit <= 0.0001: continue` ensures we never call ceil on essentially-zero values, so max(1,...) effectively only fires for deficits in (0.0001, 1.0] — same path as the tiny-deficit test case.",
+    "server.py:1466 suggestions dict carries the int `order_qty` as `quantity`. Downstream at lines 1478 (existing branch) and 1485 (insert branch) it is written verbatim into MongoDB — so DB now stores int (not float). Reads return it back as int in JSON (verified). Prior `round(deficit,4)` would have produced floats like 5.7143; new behavior produces 6.",
+    "server.py:1460-1463 short-circuits for target<=0 (per_day==0 OR max_days==0) and deficit<=0.0001 (already at/above max), so the math.ceil call is never executed for those zero-deficit cases — verified by TestZeroDeficitNoEntry.",
+    "No PPT-related interaction with the math change: server.py:1474 PPT-coerce guard and lines 1478-1490 write paths are unchanged; iter6's 'both' tests still all pass.",
+    "MongoDB _id continues to be excluded across all reads (verified via shopping-list GET response shape)."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_submit_stock_ceiling.py (NEW — 5 tests: fractional ceiling, zero per_day, zero max_days, tiny deficit floor-to-1, exact integer target)"
+  ],
+  "success_rate": {
+    "backend": "100% (59/59 — 5 new ceiling + 27 phase5 + 13 both-PPT + 14 accounting_v3)",
+    "frontend": "not tested (backend-only request)"
+  },
+  "seed_data_creation": "test_submit_stock_ceiling.py provisions one TEST_SubmitCeil_* store via POST /api/stores (module-scoped) and tears it down in fixture teardown (cascades store data). Each test creates fresh TEST_Prod_* products (avg_sales config varies per scenario). No cross-test pollution.",
+  "retest_needed": false,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "BASE_URL env var: EXPO_PUBLIC_BACKEND_URL (must be exported before pytest; .env not auto-loaded). The submit_stock endpoint now writes INTEGER quantities (math.ceil of deficit, min 1) into both new and updated continuous-list entries. Total backend suite is now: test_inventory_phase3.py (46) + test_inventory_phase5.py (27) + test_accounting_v3.py (14) + test_shopping_list_both_ppt.py (13) + test_submit_stock_ceiling.py (5) + backend_test.py (auth/health). Carried over from iter 5/6: delete_store cascade still leaves orphan rows in suppliers/taxonomies/products/shopping_list collections.",
+  "rca_of_issue": "N/A — all tests pass. The change `round(deficit, 4)` -> `max(1, int(math.ceil(deficit)))` at server.py:1465 with `import math` at server.py:17 is correctly implemented. Quantities are now integers; previous fractional values (e.g., 5.7143) are correctly rounded up (e.g., 6). Pre-existing target<=0 short-circuit at server.py:1460 prevents math.ceil from ever being called on zero/negative deficits."
+}
